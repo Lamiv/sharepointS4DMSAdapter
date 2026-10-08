@@ -1,0 +1,59 @@
+# SharePoint adapter configuration. ${VAR} references are expanded from the
+# environment; keep secrets in .env / Docker secrets, never in this file.
+server:
+  interfaces: [rest]            # rest, contentrepo (contentrepo: pending protocol confirmation)
+  restAddr: ":8080"
+  contentRepoAddr: ":8090"
+  adminAddr: ":9090"            # /metrics, /healthz, /readyz - do not expose publicly
+  maxInFlight: 1000             # per listener; excess requests get 503 + Retry-After
+  corsOrigins: []               # e.g. ["https://my-fiori-launchpad.example.com"]
+  # tlsCertFile: /etc/adapter/tls/tls.crt
+  # tlsKeyFile: /etc/adapter/tls/tls.key
+
+graph:
+  tenantId: ${GRAPH_TENANT_ID}
+  clientId: ${GRAPH_CLIENT_ID}
+  clientSecret: ${GRAPH_CLIENT_SECRET}
+  maxConcurrency: 64            # simultaneous Graph calls per adapter instance
+  maxRetries: 5
+  maxRetryBackoff: 60s
+  metadataCacheTtl: 60s
+
+transfer:
+  simpleUploadMaxBytes: 4194304     # <= 4 MiB: single PUT; above: resumable upload session
+  chunkSizeBytes: 5242880           # multiple of 320 KiB
+  memoryBudgetBytes: 536870912      # total transfer buffer memory (512 MiB)
+  maxUploadBytes: 2147483648        # 2 GiB
+  spoolDir: /tmp
+  downloadMode: proxy               # proxy | redirect (302 to short-lived SharePoint URL)
+
+auth:
+  apiKeys:
+    - name: s4hana
+      key: ${ADAPTER_API_KEY_S4}         # or sha256: <hex> to avoid storing plaintext
+      repositories: ["*"]
+      permissions: [read, write, delete]
+    - name: fiori-readonly
+      key: ${ADAPTER_API_KEY_FIORI}
+      repositories: [DMS]
+      permissions: [read]
+  # jwt:                                 # optional: Entra ID / SAP IAS access tokens
+  #   issuer: https://login.microsoftonline.com/<tenant>/v2.0
+  #   audience: api://sharepoint-adapter
+  #   jwksUrl: https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys
+  #   rolesClaim: roles
+  #   rolePrefix: "Documents."           # Documents.read -> read
+
+repositories:
+  - id: DMS
+    # Use driveId when known; otherwise siteUrl (+ driveName) or siteId.
+    siteUrl: https://contoso.sharepoint.com/sites/SAPDocuments
+    driveName: Documents
+    rootPath: S4HANA/DMS
+  - id: ATTACHMENTS
+    driveId: ${SP_DRIVE_ID}
+    rootPath: S4HANA/Attachments
+
+log:
+  level: info
+  format: json

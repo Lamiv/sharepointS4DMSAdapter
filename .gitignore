@@ -1,0 +1,6 @@
+/bin/
+/loadtest/results/
+*.local.yaml
+.env
+/deploy/.env
+/deploy/config.yaml

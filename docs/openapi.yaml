@@ -1,0 +1,344 @@
+openapi: 3.0.3
+info:
+  title: SharePoint Adapter – Document REST API
+  version: 1.0.0
+  description: |
+    Document API for SAP S/4HANA, Fiori and other enterprise clients, backed by
+    SharePoint Online document libraries through Microsoft Graph.
+
+    * Documents live in **repositories** (a SharePoint library + root folder).
+    * Business-object attachments use `objects/{type}/{key}` (e.g. `BUS2081/5105600001`).
+    * Uploads ≤ 4 MiB use one Graph call; larger uploads stream through resumable
+      upload sessions without buffering the whole file.
+    * Downloads support `Range`, `If-None-Match` (304) and optional redirect mode.
+    * Errors are RFC 7807 `application/problem+json` and include `requestId`.
+servers:
+  - url: http://localhost:8080/api/v1
+security:
+  - ApiKey: []
+  - Bearer: []
+tags:
+  - name: Repositories
+  - name: Documents
+  - name: Attachments
+  - name: Browse
+paths:
+  /repositories:
+    get:
+      tags: [Repositories]
+      summary: List repositories visible to the caller
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        readOnly: { type: boolean }
+                        access: { type: array, items: { type: string, enum: [read, write, delete] } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /repositories/{repo}/documents:
+    parameters: [{ $ref: '#/components/parameters/repo' }]
+    post:
+      tags: [Documents]
+      summary: Upload a new document
+      description: |
+        Send the file either as the raw request body (name via `fileName`, `Slug`
+        or `X-File-Name`) or as `multipart/form-data` with one file part and
+        optional `folder`, `conflict`, `fileName` fields **before** the file part.
+        Missing folders are created automatically.
+      parameters:
+        - { name: folder, in: query, schema: { type: string }, description: Repository-relative folder, e.g. `invoices/2026` }
+        - { name: fileName, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/conflict'
+        - { name: Slug, in: header, schema: { type: string }, description: URL-encoded file name (SAP Gateway convention) }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                folder: { type: string }
+                conflict: { type: string, enum: [rename, replace, fail] }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /repositories/{repo}/documents/{id}:
+    parameters: [{ $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Documents]
+      summary: Get document metadata
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Documents]
+      summary: Delete a document (moves it to the SharePoint recycle bin)
+      parameters:
+        - { name: If-Match, in: header, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+
+  /repositories/{repo}/documents/{id}/content:
+    parameters: [{ $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Documents]
+      summary: Download content
+      parameters:
+        - { name: disposition, in: query, schema: { type: string, enum: [attachment, inline], default: attachment } }
+        - { name: mode, in: query, schema: { type: string, enum: [proxy, redirect] }, description: Override configured download mode. `redirect` answers 302 to a short-lived pre-authenticated SharePoint URL. }
+        - { name: Range, in: header, schema: { type: string } }
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        '200':
+          description: Content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '206': { description: Partial content }
+        '302': { description: Redirect to SharePoint (redirect mode) }
+        '304': { description: Not modified }
+        '404': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [Documents]
+      summary: Replace content (creates a new SharePoint version)
+      parameters:
+        - { name: If-Match, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '412': { $ref: '#/components/responses/Problem' }
+
+  /repositories/{repo}/documents/{id}/thumbnail:
+    parameters: [{ $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Documents]
+      summary: Image/document thumbnail rendered by SharePoint
+      parameters:
+        - { name: size, in: query, schema: { type: string, enum: [small, medium, large], default: medium } }
+      responses:
+        '200':
+          description: Image
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+
+  /repositories/{repo}/documents/{id}/versions:
+    parameters: [{ $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Documents]
+      summary: List versions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        size: { type: integer, format: int64 }
+                        modifiedAt: { type: string, format: date-time }
+                        modifiedBy: { type: string }
+
+  /repositories/{repo}/objects/{type}/{key}/documents:
+    parameters:
+      - $ref: '#/components/parameters/repo'
+      - { name: type, in: path, required: true, schema: { type: string }, example: BUS2081 }
+      - { name: key, in: path, required: true, schema: { type: string }, example: '5105600001' }
+    get:
+      tags: [Attachments]
+      summary: List attachments of a business object
+      parameters: [{ $ref: '#/components/parameters/top' }, { $ref: '#/components/parameters/cursor' }]
+      responses:
+        '200': { $ref: '#/components/responses/Page' }
+    post:
+      tags: [Attachments]
+      summary: Attach a document to a business object
+      description: Same body options as `POST /repositories/{repo}/documents`; the folder is `{type}/{key}`.
+      parameters:
+        - { name: fileName, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/conflict'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+
+  /repositories/{repo}/children:
+    parameters: [{ $ref: '#/components/parameters/repo' }]
+    get:
+      tags: [Browse]
+      summary: List a folder
+      parameters:
+        - { name: path, in: query, schema: { type: string }, description: Repository-relative folder; empty = repository root }
+        - $ref: '#/components/parameters/top'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        '200': { $ref: '#/components/responses/Page' }
+
+  /repositories/{repo}/lookup:
+    parameters: [{ $ref: '#/components/parameters/repo' }]
+    get:
+      tags: [Browse]
+      summary: Get an item by repository-relative path
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+
+  /repositories/{repo}/folders:
+    parameters: [{ $ref: '#/components/parameters/repo' }]
+    post:
+      tags: [Browse]
+      summary: Create a folder path (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, example: 'projects/P-1000/drawings' }
+      responses:
+        '201':
+          description: Folder
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+
+  /repositories/{repo}/search:
+    parameters: [{ $ref: '#/components/parameters/repo' }]
+    get:
+      tags: [Browse]
+      summary: Search by name/content within the repository
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - $ref: '#/components/parameters/top'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        '200': { $ref: '#/components/responses/Page' }
+
+components:
+  securitySchemes:
+    ApiKey: { type: apiKey, in: header, name: X-API-Key }
+    Bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    repo: { name: repo, in: path, required: true, schema: { type: string }, example: DMS }
+    id: { name: id, in: path, required: true, schema: { type: string } }
+    top: { name: top, in: query, schema: { type: integer, default: 200, maximum: 1000 } }
+    cursor: { name: cursor, in: query, schema: { type: string }, description: '`nextCursor` from the previous page' }
+    conflict: { name: conflict, in: query, schema: { type: string, enum: [rename, replace, fail], default: rename } }
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Page:
+      description: Page of items
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              value: { type: array, items: { $ref: '#/components/schemas/Document' } }
+              nextCursor: { type: string }
+  schemas:
+    Document:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        repository: { type: string }
+        path: { type: string, description: Repository-relative path }
+        isFolder: { type: boolean }
+        size: { type: integer, format: int64 }
+        mimeType: { type: string }
+        eTag: { type: string }
+        contentTag: { type: string }
+        childCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        modifiedAt: { type: string, format: date-time }
+        createdBy: { type: string }
+        modifiedBy: { type: string }
+        webUrl: { type: string }
+        hashes:
+          type: object
+          properties:
+            quickXor: { type: string }
+            sha256: { type: string }
+        links:
+          type: object
+          properties:
+            self: { type: string }
+            content: { type: string }
+            thumbnail: { type: string }
+    Problem:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        requestId: { type: string }

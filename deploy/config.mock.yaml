@@ -1,0 +1,25 @@
+# Configuration for local runs / load tests against the Graph emulator.
+server:
+  interfaces: [rest]
+  maxInFlight: 2000
+graph:
+  tenantId: mock-tenant
+  clientId: mock-client
+  clientSecret: mock-secret
+  authorityUrl: http://graphmock:8000
+  baseUrl: http://graphmock:8000/v1.0
+  maxConcurrency: 128
+  metadataCacheTtl: 60s
+transfer:
+  downloadMode: proxy
+auth:
+  apiKeys:
+    - name: loadtest
+      key: loadtest-key
+      permissions: [read, write, delete]
+repositories:
+  - id: DMS
+    driveId: drive1
+    rootPath: SAP/DMS
+log:
+  level: warn

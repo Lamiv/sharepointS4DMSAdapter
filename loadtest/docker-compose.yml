@@ -1,0 +1,33 @@
+# Load-test stack: Graph emulator + adapter (resource-capped) + k6.
+# Run via loadtest/run.sh, not directly.
+services:
+  graphmock:
+    build: { context: .., target: graphmock }
+    environment:
+      MOCK_LATENCY_MS: "${MOCK_LATENCY_MS:-60-140}"     # emulate Graph API latency
+      MOCK_THROTTLE_RATE: "${MOCK_THROTTLE_RATE:-0}"
+      MOCK_DATA_DIR: /data
+      MOCK_RETAIN_BYTES: "1073741824"   # keep 1 GiB (seed files); discard later upload bytes
+    tmpfs: ["/data:size=8g,uid=65532"]
+
+  adapter:
+    build: { context: .., target: adapter }
+    depends_on: [graphmock]
+    environment:
+      METADATA_CACHE_TTL: "${METADATA_CACHE_TTL:-60s}"
+    volumes:
+      - ../deploy/config.mock.yaml:/etc/adapter/config.yaml:ro
+    tmpfs: ["/tmp:size=2g,uid=65532"]
+    ports: ["8080:8080", "9090:9090"]
+    deploy:
+      resources:
+        limits: { cpus: "${ADAPTER_CPUS:-2}", memory: "${ADAPTER_MEM:-1g}" }
+
+  k6:
+    image: grafana/k6:latest
+    profiles: ["k6"]
+    depends_on: [adapter]
+    user: root
+    volumes:
+      - ./:/scripts
+    working_dir: /scripts

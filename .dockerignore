@@ -1,0 +1,6 @@
+.git
+bin
+loadtest
+docs
+deploy/*.local.yaml
+.env
