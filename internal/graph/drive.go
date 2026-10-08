@@ -313,6 +313,20 @@ func (c *Client) CreateFolderPath(ctx context.Context, drive, path string) (*Dri
 	return item, nil
 }
 
+// EnsureChildFolder creates folder name under parentPath (which must
+// exist) in one call; an existing folder of that name counts as success.
+func (c *Client) EnsureChildFolder(ctx context.Context, drive, parentPath, name string) error {
+	body := map[string]any{"name": name, "folder": map[string]any{}, "@microsoft.graph.conflictBehavior": "fail"}
+	resp, err := c.do(ctx, request{op: "folder.create", method: http.MethodPost, url: itemByPathURL(drive, parentPath, "children"), body: jsonBody(body), header: jsonHeader})
+	if IsConflict(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return decode(resp, nil)
+}
+
 // UploadSmallByPath uploads a file of up to a few MiB in one request.
 // Missing parent folders are created by Graph.
 func (c *Client) UploadSmallByPath(ctx context.Context, drive, path string, conflict ConflictBehavior, data []byte) (*DriveItem, error) {

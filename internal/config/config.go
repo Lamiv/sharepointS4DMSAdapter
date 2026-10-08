@@ -19,7 +19,32 @@ type Config struct {
 	Transfer     TransferConfig     `yaml:"transfer"`
 	Auth         AuthConfig         `yaml:"auth"`
 	Repositories []RepositoryConfig `yaml:"repositories"`
-	Log          LogConfig          `yaml:"log"`
+	// ContentServer configures the SAP Content Server HTTP interface.
+	ContentServer ContentServerConfig `yaml:"contentServer"`
+	Log           LogConfig           `yaml:"log"`
+}
+
+type ContentServerConfig struct {
+	// AllowedNetworks restricts callers to these CIDRs (empty = any).
+	AllowedNetworks []string `yaml:"allowedNetworks"`
+	// ClockSkew tolerated when checking the signed URL expiration.
+	ClockSkew time.Duration `yaml:"clockSkew"`
+	// AutoActivateCertificates activates certificates received via putCert
+	// immediately (trust on first use). Keep false in production.
+	AutoActivateCertificates bool                      `yaml:"autoActivateCertificates"`
+	Repositories             []ContentRepositoryConfig `yaml:"repositories"`
+}
+
+type ContentRepositoryConfig struct {
+	// ContRep is the SAP content repository ID from transaction OAC0.
+	ContRep     string `yaml:"contRep"`
+	Description string `yaml:"description"`
+	// Repository references a storage repository (library + root path).
+	Repository string `yaml:"repository"`
+	// Folder below the repository root; defaults to "ContentServer/<contRep>".
+	Folder string `yaml:"folder"`
+	// Signature: required (default) | optional | none. Must match OAC0.
+	Signature string `yaml:"signature"`
 }
 
 type ServerConfig struct {
@@ -36,6 +61,9 @@ type ServerConfig struct {
 	TLSCertFile     string        `yaml:"tlsCertFile"`
 	TLSKeyFile      string        `yaml:"tlsKeyFile"`
 	EnablePprof     bool          `yaml:"enablePprof"`
+	// AdminToken, when set, is required (Bearer) for mutating admin
+	// endpoints such as certificate activation.
+	AdminToken string `yaml:"adminToken"`
 }
 
 type GraphConfig struct {
@@ -173,6 +201,7 @@ func applyEnv(c *Config) {
 			*dst = v
 		}
 	}
+	str("ADMIN_TOKEN", &c.Server.AdminToken)
 	str("GRAPH_TENANT_ID", &c.Graph.TenantID)
 	str("GRAPH_CLIENT_ID", &c.Graph.ClientID)
 	str("GRAPH_CLIENT_SECRET", &c.Graph.ClientSecret)
@@ -210,6 +239,19 @@ func normalize(c *Config) {
 	if c.Transfer.SimpleUploadMax > c.Transfer.MemoryBudget {
 		c.Transfer.SimpleUploadMax = c.Transfer.MemoryBudget
 	}
+	if c.ContentServer.ClockSkew == 0 {
+		c.ContentServer.ClockSkew = 5 * time.Minute
+	}
+	for i := range c.ContentServer.Repositories {
+		r := &c.ContentServer.Repositories[i]
+		if r.Folder == "" {
+			r.Folder = "ContentServer/" + r.ContRep
+		}
+		r.Folder = strings.Trim(r.Folder, "/")
+		if r.Signature == "" {
+			r.Signature = "required"
+		}
+	}
 	c.Graph.BaseURL = strings.TrimRight(c.Graph.BaseURL, "/")
 	c.Graph.AuthorityURL = strings.TrimRight(c.Graph.AuthorityURL, "/")
 	for i := range c.Repositories {
@@ -238,10 +280,31 @@ func (c Config) Validate() error {
 			errs = append(errs, fmt.Errorf("repository %q: one of driveId, siteId or siteUrl is required", r.ID))
 		}
 	}
+	if c.Server.Enabled("contentrepo") && len(c.ContentServer.Repositories) == 0 {
+		errs = append(errs, errors.New("contentServer.repositories is required when the contentrepo interface is enabled"))
+	}
+	seenRep := map[string]bool{}
+	for _, cr := range c.ContentServer.Repositories {
+		if cr.ContRep == "" || len(cr.ContRep) > 2 {
+			errs = append(errs, fmt.Errorf("contentServer: contRep %q must be 1-2 characters (OAC0 repository ID)", cr.ContRep))
+		}
+		if seenRep[cr.ContRep] {
+			errs = append(errs, fmt.Errorf("contentServer: duplicate contRep %q", cr.ContRep))
+		}
+		seenRep[cr.ContRep] = true
+		if !seen[cr.Repository] {
+			errs = append(errs, fmt.Errorf("contentServer: contRep %q references unknown repository %q", cr.ContRep, cr.Repository))
+		}
+		switch cr.Signature {
+		case "required", "optional", "none":
+		default:
+			errs = append(errs, fmt.Errorf("contentServer: contRep %q signature must be required, optional or none", cr.ContRep))
+		}
+	}
 	if c.Transfer.DownloadMode != "proxy" && c.Transfer.DownloadMode != "redirect" {
 		errs = append(errs, fmt.Errorf("transfer.downloadMode must be proxy or redirect"))
 	}
-	if !c.Auth.Disabled && len(c.Auth.APIKeys) == 0 && c.Auth.JWT == nil {
+	if c.Server.Enabled("rest") && !c.Auth.Disabled && len(c.Auth.APIKeys) == 0 && c.Auth.JWT == nil {
 		errs = append(errs, errors.New("auth: configure apiKeys and/or jwt, or set auth.disabled=true"))
 	}
 	return errors.Join(errs...)

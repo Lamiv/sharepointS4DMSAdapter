@@ -6,8 +6,8 @@ An adapter that lets SAP S/4HANA 2025 Private Cloud store and retrieve images an
                  ┌──────────────────────── adapter container ────────────────────────┐
  Fiori / apps ──►│ Document REST API :8080 ─┐                                         │
                  │                          ├─► storage service ─► transfer engine ─┐ │
- S/4 KPro/DMS ──►│ Content Repository :8090 ┘   (repos, scope,     (simple/chunked,  │ │──► Microsoft Graph
-                 │   (pending confirmation)      metadata cache)    memory budget)   │ │    / SharePoint
+ S/4 KPro/DMS ──►│ Content Server   :8090 ┘   (repos, scope,     (simple/chunked,  │ │──► Microsoft Graph
+                 │   (SAP HTTP 4.5 interface)    metadata cache)    memory budget)   │ │    / SharePoint
                  │                                                  Graph client ◄──┘ │
                  │ auth (API key / JWT in, client-credentials out) · observability     │
                  │ admin :9090  /metrics /healthz /readyz                              │
@@ -24,7 +24,7 @@ Both interfaces sit on the same internal components:
 | Authentication | `internal/auth` | Inbound: API keys (with per-repo read/write/delete) or JWT validated against JWKS. Outbound: Entra ID client credentials with a cached token, refreshed by a single request. |
 | Observability | `internal/observability` | JSON logs, request/correlation IDs (also sent to Graph as `client-request-id`), Prometheus metrics, health/readiness, overload protection. |
 | Document REST API | `internal/restapi` | Fiori-oriented REST API ([OpenAPI](docs/openapi.yaml)). |
-| Content Repository interface | not implemented yet | Waiting for protocol confirmation; see [research](docs/content-repository-interface-research.md). |
+| SAP Content Server interface | `internal/contentrepo` | SAP Content Server HTTP 4.5 interface (pVersion 0045–0047) for OAC0 "HTTP content server": DMS, GOS, ArchiveLink. secKey (PKCS#7) verification, putCert plus certificate activation. See [setup guide](docs/content-server.md). |
 
 ## Quick start (no SharePoint needed)
 
@@ -70,7 +70,7 @@ curl -s -H "X-API-Key: loadtest-key" http://localhost:8080/api/v1/repositories/D
 | `transfer.downloadMode` | `proxy` | `redirect` returns a 302 to SharePoint, so content bypasses the adapter. |
 | `server.maxInFlight` | 1000 | Requests beyond this get 503 with `Retry-After`. |
 
-Environment overrides: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `GRAPH_BASE_URL`, `GRAPH_AUTHORITY_URL`, `GRAPH_MAX_CONCURRENCY`, `METADATA_CACHE_TTL`, `DOWNLOAD_MODE`, `LOG_LEVEL`, `ADAPTER_INTERFACES`. YAML values can also reference `${VAR}`.
+Environment overrides: `ADMIN_TOKEN`, `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `GRAPH_BASE_URL`, `GRAPH_AUTHORITY_URL`, `GRAPH_MAX_CONCURRENCY`, `METADATA_CACHE_TTL`, `DOWNLOAD_MODE`, `LOG_LEVEL`, `ADAPTER_INTERFACES`. YAML values can also reference `${VAR}`.
 
 ## Document REST API
 
@@ -117,10 +117,19 @@ docker run --rm -v "$PWD:/src" -w /src golang:1.25 go test -race ./...
 # load test at 10/25/50/100 concurrent clients -> loadtest/results/REPORT.md
 ./loadtest/run.sh
 METADATA_CACHE_TTL=0s OUT=results/cache-off ./loadtest/run.sh   # worst case: no metadata cache
+SCENARIO=contentserver.js OUT=results/contentserver ./loadtest/run.sh   # SAP Content Server interface
 ```
 
 Results: [docs/load-test-results.md](docs/load-test-results.md).
 
-## SAP Content Repository interface
+## SAP Content Server interface
 
-This interface is **deliberately not implemented yet**. [docs/content-repository-interface-research.md](docs/content-repository-interface-research.md) compares the SAP Content Server HTTP interface (0045/0046/0047, used by ArchiveLink and KPro) with a CMIS content repository for S/4HANA 2025. It also has a Basis checklist for confirming what your system supports. Once the protocol is confirmed, it will be added as `internal/contentrepo` on listener `:8090`, using the storage service, transfer engine, auth and observability components above.
+S/4HANA stores documents through OAC0 storage type **HTTP content server**, pointed at `http(s)://<host>:8090/ContentServer/ContentServer.dll`. The implementation follows SAP's *Content Server HTTP 4.5 Interface* documentation for ABAP Platform 2025, and accepts `pVersion` 0045, 0046 and 0047. The [setup guide](docs/content-server.md) covers:
+- OAC0, OACT and OAC3 steps
+- certificate activation (`/adapter certs activate Z1 CN=<SID>`)
+- the signature modes
+- the SharePoint storage layout
+- command support (all commands except `attrSearch` and `getCert`)
+- the points to confirm on the real system
+
+CMIS was ruled out because SharePoint Online has no CMIS endpoint. The background is in [docs/content-repository-interface-research.md](docs/content-repository-interface-research.md).

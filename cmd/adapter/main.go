@@ -2,11 +2,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
@@ -21,6 +24,7 @@ import (
 
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/config"
+	"sharepointadapter/internal/contentrepo"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/observability"
 	"sharepointadapter/internal/restapi"
@@ -36,6 +40,9 @@ func main() {
 	flag.Parse()
 	if *healthcheck {
 		os.Exit(probe())
+	}
+	if flag.Arg(0) == "certs" {
+		os.Exit(certsCLI(flag.Args()[1:]))
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -116,15 +123,21 @@ func run(cfg config.Config, log *slog.Logger) error {
 		servers = append(servers, newServer(cfg.Server, cfg.Server.RESTAddr,
 			observability.Middleware("rest", cfg.Server.MaxInFlight, log, api.Handler())))
 	}
+	adminMux := adminHandler(cfg.Server.EnablePprof, &ready)
 	if cfg.Server.Enabled("contentrepo") {
-		// Gated until the supported protocol for the target S/4HANA release
-		// is confirmed; see docs/content-repository-interface-research.md.
-		return errors.New("contentrepo interface is not implemented yet")
+		cs, err := contentrepo.New(ctx, svc, cfg.ContentServer, cfg.Graph.MetadataCacheTTL, version, log)
+		if err != nil {
+			return err
+		}
+		go cs.RefreshCertificates(ctx, time.Minute)
+		cs.RegisterAdmin(adminMux, cfg.Server.AdminToken)
+		servers = append(servers, newServer(cfg.Server, cfg.Server.ContentRepoAddr,
+			observability.Middleware("contentrepo", cfg.Server.MaxInFlight, log, cs.Handler())))
 	}
 	if len(servers) == 0 {
 		return errors.New("no interfaces enabled (server.interfaces)")
 	}
-	admin := newServer(cfg.Server, cfg.Server.AdminAddr, adminHandler(cfg.Server.EnablePprof, &ready))
+	admin := newServer(cfg.Server, cfg.Server.AdminAddr, adminMux)
 	admin.TLSConfig = nil
 
 	errCh := make(chan error, len(servers)+1)
@@ -205,7 +218,7 @@ func readinessLoop(ctx context.Context, svc *storage.Service, ready *atomic.Bool
 	}
 }
 
-func adminHandler(enablePprof bool, ready *atomic.Bool) http.Handler {
+func adminHandler(enablePprof bool, ready *atomic.Bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -243,6 +256,53 @@ func probe() int {
 		return 1
 	}
 	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
+// certsCLI manages content server certificates through the local admin
+// listener, e.g. inside the container:
+//
+//	/adapter certs list
+//	/adapter certs activate Z1 CN=S4H
+func certsCLI(args []string) int {
+	base := os.Getenv("ADMIN_URL")
+	if base == "" {
+		base = "http://127.0.0.1:9090"
+	}
+	usage := func() int {
+		fmt.Fprintln(os.Stderr, "usage: adapter certs list | activate <contRep> <authId> | deactivate <contRep> <authId>")
+		return 2
+	}
+	if len(args) == 0 {
+		return usage()
+	}
+	var req *http.Request
+	switch args[0] {
+	case "list":
+		req, _ = http.NewRequest(http.MethodGet, base+"/admin/contentserver/certificates", nil)
+	case "activate", "deactivate":
+		if len(args) != 3 {
+			return usage()
+		}
+		body, _ := json.Marshal(map[string]string{"contRep": args[1], "authId": args[2]})
+		req, _ = http.NewRequest(http.MethodPost, base+"/admin/contentserver/certificates/"+args[0], bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	default:
+		return usage()
+	}
+	if t := os.Getenv("ADMIN_TOKEN"); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(os.Stdout, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return 1
 	}

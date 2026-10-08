@@ -322,6 +322,25 @@ func (s *Service) CreateFolder(ctx context.Context, repo *Repository, rel string
 	return it, mapErr(err)
 }
 
+// EnsureFolder makes sure folder rel exists, creating parents as needed.
+// Only the last segment is created with a single call when the parent is
+// known to exist (parentKnown), which keeps hot paths to one Graph request.
+func (s *Service) EnsureFolder(ctx context.Context, repo *Repository, rel string, parentKnown bool) error {
+	if repo.ReadOnly {
+		return ErrReadOnly
+	}
+	p, err := repo.abs(rel)
+	if err != nil {
+		return err
+	}
+	if !parentKnown {
+		_, err := s.g.CreateFolderPath(ctx, repo.DriveID, p)
+		return mapErr(err)
+	}
+	parent, name := path.Split(p)
+	return mapErr(s.g.EnsureChildFolder(ctx, repo.DriveID, strings.TrimSuffix(parent, "/"), name))
+}
+
 func (s *Service) Versions(ctx context.Context, repo *Repository, id string) ([]graph.Version, error) {
 	if _, err := s.Get(ctx, repo, id); err != nil {
 		return nil, err
@@ -348,6 +367,44 @@ func (s *Service) Download(ctx context.Context, w http.ResponseWriter, repo *Rep
 	}
 	res, err := s.eng.Stream(ctx, w, url, rangeHdr, refresh)
 	return res, mapErr(err)
+}
+
+// Open returns the raw content response (optionally a byte range) for it,
+// refreshing an expired download URL once. The caller closes the body.
+func (s *Service) Open(ctx context.Context, repo *Repository, it *graph.DriveItem, rangeHdr string) (*http.Response, error) {
+	refresh := func() (string, error) {
+		fresh, err := s.Refresh(ctx, repo, it.ID)
+		if err != nil {
+			return "", err
+		}
+		return fresh.DownloadURL, nil
+	}
+	url := it.DownloadURL
+	if url == "" {
+		var err error
+		if url, err = refresh(); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := s.eng.Open(ctx, url, rangeHdr, refresh)
+	return resp, mapErr(err)
+}
+
+// ListAll returns every child of a repository-relative folder.
+func (s *Service) ListAll(ctx context.Context, repo *Repository, rel string) ([]graph.DriveItem, error) {
+	var all []graph.DriveItem
+	cursor := ""
+	for {
+		pg, err := s.List(ctx, repo, rel, 1000, cursor)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, pg.Items...)
+		if pg.Cursor == "" {
+			return all, nil
+		}
+		cursor = pg.Cursor
+	}
 }
 
 func (s *Service) Thumbnail(ctx context.Context, repo *Repository, id, size string) (*http.Response, error) {

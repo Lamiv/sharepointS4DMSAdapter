@@ -1,6 +1,6 @@
 # Configuration for local runs / load tests against the Graph emulator.
 server:
-  interfaces: [rest]
+  interfaces: [rest, contentrepo]
   maxInFlight: 2000
 graph:
   tenantId: mock-tenant
@@ -21,5 +21,11 @@ repositories:
   - id: DMS
     driveId: drive1
     rootPath: SAP/DMS
+contentServer:
+  repositories:
+    - contRep: Z1
+      repository: DMS
+      description: Load test repository
+      signature: none     # k6 cannot produce SAP PKCS#7 secKeys; cost is measured by Go benchmarks
 log:
   level: warn

@@ -413,7 +413,10 @@ func (s *server) ensureFolders(drive, p string) (*item, error) {
 	if p == "" {
 		return cur, nil
 	}
-	for _, seg := range strings.Split(p, "/") {
+	for _, seg := range strings.Split(strings.Trim(p, "/"), "/") {
+		if seg == "" {
+			continue
+		}
 		if id, ok := s.children[cur.ID][strings.ToLower(seg)]; ok {
 			cur = s.items[id]
 			if !cur.Folder {
@@ -591,7 +594,7 @@ func (s *server) createChild(w http.ResponseWriter, r *http.Request, drive, targ
 		graphError(w, 409, "nameAlreadyExists", "The specified item name already exists.")
 		return
 	}
-	f, err := s.ensureFolders(drive, strings.TrimPrefix(s.pathOf(parent)+"/"+body.Name, "/"))
+	f, err := s.ensureFolders(drive, strings.Trim(s.pathOf(parent)+"/"+body.Name, "/"))
 	if err != nil {
 		graphError(w, 409, "nameAlreadyExists", err.Error())
 		return

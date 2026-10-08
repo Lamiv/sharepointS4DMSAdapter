@@ -225,18 +225,11 @@ var passthroughHeaders = []string{"Content-Length", "Content-Range", "Accept-Ran
 // kept. refresh is called once to obtain a new download URL if the cached
 // one has expired.
 func (e *Engine) Stream(ctx context.Context, w http.ResponseWriter, downloadURL, rangeHdr string, refresh func() (string, error)) (DownloadResult, error) {
-	resp, err := e.g.OpenDownload(ctx, downloadURL, rangeHdr)
-	if err != nil && refresh != nil && isExpired(err) {
-		if downloadURL, err = refresh(); err == nil {
-			resp, err = e.g.OpenDownload(ctx, downloadURL, rangeHdr)
-		}
-	}
+	resp, err := e.Open(ctx, downloadURL, rangeHdr, refresh)
 	if err != nil {
 		return DownloadResult{}, err
 	}
 	defer resp.Body.Close()
-	observability.TransfersActive.WithLabelValues("download", "stream").Inc()
-	defer observability.TransfersActive.WithLabelValues("download", "stream").Dec()
 
 	for _, h := range passthroughHeaders {
 		if v := resp.Header.Get(h); v != "" {
@@ -247,12 +240,32 @@ func (e *Engine) Stream(ctx context.Context, w http.ResponseWriter, downloadURL,
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
 	w.WriteHeader(resp.StatusCode)
+	n, err := e.Copy(w, resp.Body)
+	return DownloadResult{Status: resp.StatusCode, Bytes: n}, err
+}
 
+// Open starts a content download (optionally a byte range) and returns the
+// raw response for callers that need full control over the reply. The
+// caller closes the body.
+func (e *Engine) Open(ctx context.Context, downloadURL, rangeHdr string, refresh func() (string, error)) (*http.Response, error) {
+	resp, err := e.g.OpenDownload(ctx, downloadURL, rangeHdr)
+	if err != nil && refresh != nil && isExpired(err) {
+		if downloadURL, err = refresh(); err == nil {
+			resp, err = e.g.OpenDownload(ctx, downloadURL, rangeHdr)
+		}
+	}
+	return resp, err
+}
+
+// Copy streams src to dst through a pooled buffer and records metrics.
+func (e *Engine) Copy(dst io.Writer, src io.Reader) (int64, error) {
+	observability.TransfersActive.WithLabelValues("download", "stream").Inc()
+	defer observability.TransfersActive.WithLabelValues("download", "stream").Dec()
 	bp := e.copyPool.Get().(*[]byte)
 	defer e.copyPool.Put(bp)
-	n, err := io.CopyBuffer(writerOnly{w}, resp.Body, *bp)
+	n, err := io.CopyBuffer(writerOnly{dst}, src, *bp)
 	observability.BytesTransferred.WithLabelValues("download").Add(float64(n))
-	return DownloadResult{Status: resp.StatusCode, Bytes: n}, err
+	return n, err
 }
 
 // StreamResponse copies an already-open Graph response (e.g. thumbnails).
@@ -264,11 +277,7 @@ func (e *Engine) StreamResponse(w http.ResponseWriter, resp *http.Response) (int
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	bp := e.copyPool.Get().(*[]byte)
-	defer e.copyPool.Put(bp)
-	n, err := io.CopyBuffer(writerOnly{w}, resp.Body, *bp)
-	observability.BytesTransferred.WithLabelValues("download").Add(float64(n))
-	return n, err
+	return e.Copy(w, resp.Body)
 }
 
 // isExpired reports whether a pre-authenticated URL was rejected because

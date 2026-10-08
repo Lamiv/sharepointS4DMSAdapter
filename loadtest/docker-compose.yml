@@ -18,7 +18,7 @@ services:
     volumes:
       - ../deploy/config.mock.yaml:/etc/adapter/config.yaml:ro
     tmpfs: ["/tmp:size=2g,uid=65532"]
-    ports: ["8080:8080", "9090:9090"]
+    ports: ["8080:8080", "8090:8090", "9090:9090"]
     deploy:
       resources:
         limits: { cpus: "${ADAPTER_CPUS:-2}", memory: "${ADAPTER_MEM:-1g}" }

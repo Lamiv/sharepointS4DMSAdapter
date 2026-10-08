@@ -1,10 +1,11 @@
 # SharePoint adapter configuration. ${VAR} references are expanded from the
 # environment; keep secrets in .env / Docker secrets, never in this file.
 server:
-  interfaces: [rest]            # rest, contentrepo (contentrepo: pending protocol confirmation)
+  interfaces: [rest, contentrepo]   # rest = Document REST API, contentrepo = SAP Content Server HTTP interface
   restAddr: ":8080"
   contentRepoAddr: ":8090"
-  adminAddr: ":9090"            # /metrics, /healthz, /readyz - do not expose publicly
+  adminAddr: ":9090"            # /metrics, /healthz, /readyz, certificate admin - do not expose publicly
+  adminToken: ${ADMIN_TOKEN}    # required for certificate activation when set
   maxInFlight: 1000             # per listener; excess requests get 503 + Retry-After
   corsOrigins: []               # e.g. ["https://my-fiori-launchpad.example.com"]
   # tlsCertFile: /etc/adapter/tls/tls.crt
@@ -53,6 +54,18 @@ repositories:
   - id: ATTACHMENTS
     driveId: ${SP_DRIVE_ID}
     rootPath: S4HANA/Attachments
+
+# SAP Content Server HTTP interface (OAC0 storage type "HTTP content server").
+contentServer:
+  allowedNetworks: []           # e.g. ["10.20.0.0/16"] = S/4HANA app servers + users' network for front-end access
+  clockSkew: 5m                 # tolerance for the signed URL expiration
+  autoActivateCertificates: false
+  repositories:
+    - contRep: Z1               # content repository ID created in OAC0
+      description: S/4HANA DMS originals
+      repository: DMS           # storage repository above (library + rootPath)
+      folder: ContentServer/Z1  # below the repository root
+      signature: required       # required | optional (honours docProt) | none - match OAC0 "Signature"
 
 log:
   level: info
