@@ -4,3 +4,5 @@
 .env
 /deploy/.env
 /deploy/config.yaml
+__pycache__/
+*.pyc
