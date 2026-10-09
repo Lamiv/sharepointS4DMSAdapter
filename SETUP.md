@@ -84,6 +84,14 @@ Pass the **tenant ID**, **client ID** and **secret value** to whoever installs t
 
 ## 3. Test the Microsoft credentials
 
+**Quick way:** once `deploy/.env` is filled in, one script runs every check below plus the write, read, upload-session and delete tests, and prints for each one the access required, what was tested, and PASS / FAIL / SKIP with the fix:
+
+```bash
+python3 scripts/check_access.py deploy/.env <tenant>.sharepoint.com sites/<site> <library> SAP_DMS
+```
+
+It needs only Python 3 and never prints the secret. Test files are created and deleted again. The manual version follows.
+
 Do this before installing anything else; it catches most setup mistakes in two minutes. Run it on the Ubuntu server, or on any Linux/macOS machine:
 
 ```bash
