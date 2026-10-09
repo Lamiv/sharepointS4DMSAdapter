@@ -14,9 +14,11 @@ services:
       - ./config.yaml:/etc/adapter/config.yaml:ro
       - spool:/var/spool/adapter   # disk-backed spool (not RAM)
     ports:
-      - "8080:8080"              # Document REST API
-      - "8090:8090"              # SAP Content Server HTTP interface (OAC0)
-      - "127.0.0.1:9090:9090"    # metrics/health: localhost only
+      # Host ports are configurable in deploy/.env when they are already taken
+      # (Ubuntu's Cockpit uses 9090). Container ports stay fixed.
+      - "${REST_PORT:-8080}:8080"                  # Document REST API
+      - "${CS_PORT:-8090}:8090"                    # SAP Content Server HTTP interface (OAC0)
+      - "127.0.0.1:${ADMIN_PORT:-9090}:9090"       # metrics/health: localhost only
     tmpfs:
       - /tmp:size=64m
     read_only: true

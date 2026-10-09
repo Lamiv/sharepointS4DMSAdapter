@@ -183,6 +183,7 @@ Fill in every line:
 | `ADAPTER_API_KEY_S4` | Generated above. The key S/4HANA or other back-end systems use for the REST API. |
 | `ADAPTER_API_KEY_FIORI` | Generated above. A read-only key for Fiori/consumers. |
 | `ADMIN_TOKEN` | Generated above. Protects certificate activation. |
+| `REST_PORT`, `CS_PORT`, `ADMIN_PORT` | Optional, commented out in the template. Uncomment only if a default host port (8080, 8090, 9090) is already used on the server. |
 
 ### 6.2 Settings: `deploy/config.yaml`
 
@@ -244,6 +245,7 @@ Now run these checks in order:
 
 ```bash
 # 1. Connected to Microsoft and the SharePoint location? -> "ready"
+#    (use your ADMIN_PORT instead of 9090 if you changed it)
 curl -s localhost:9090/readyz
 
 # 2. Upload and read back a test document through the REST API
@@ -360,7 +362,7 @@ All commands run from `/opt/sharepoint-adapter`:
 | Requests return 503 with `Retry-After` | SharePoint throttling | Lower `graph.maxConcurrency`; spread out bulk loads. |
 | SAP: 409 `administration data ... unreadable` | A document's `~sapdoc.json` is corrupt | Restore the document folder ([docs/content-server.md](docs/content-server.md#8-consistency-concurrency-and-recovery)). |
 | REST API returns 403 `path is reserved` | The path is inside the SAP content server folder | Expected: that folder belongs to SAP. Use another folder. |
-| Port in use on start | Another service uses 8080/8090 | Change the left-hand port in `deploy/docker-compose.yml` (e.g. `"18080:8080"`). |
+| `port is already allocated` on start | Another service uses 8080, 8090 or 9090. Ubuntu's **Cockpit** uses 9090. | Find it with `sudo ss -ltnp \| grep -E ':(8080\|8090\|9090)'`. Then set `ADMIN_PORT=19090` (or `REST_PORT` / `CS_PORT`) in `deploy/.env` and run `up -d` again. Use the new port wherever this guide says `localhost:9090`. |
 
 Still stuck? Collect `docker compose -f deploy/docker-compose.yml logs --tail 200 adapter` and the `X-Request-ID` header of the failing request. Every log line carries the same ID, and the adapter forwards it to Microsoft as `client-request-id`, so Microsoft support can trace the call. Never share `.env`.
 
