@@ -39,16 +39,24 @@ def load_env(path):
     return env
 
 
-def call(method, url, data=None, headers=None):
-    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            raw = r.read()
-            return r.status, raw
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
-    except Exception as e:  # network problems
-        return 0, str(e).encode()
+def call(method, url, data=None, headers=None, attempts=4):
+    """One Graph call. Network drops (status 0), throttling (429) and 5xx are
+    retried, as the adapter itself does; other statuses are returned as-is."""
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            status, body = e.code, e.read()
+            wait = int(e.headers.get("Retry-After", "0") or 0) if status in (429, 503) else 0
+            if status not in (429, 500, 502, 503, 504) or attempt == attempts - 1:
+                return status, body
+            time.sleep(max(wait, 1 + attempt))
+        except Exception as e:  # connection reset, DNS, timeout
+            if attempt == attempts - 1:
+                return 0, str(e).encode()
+            time.sleep(1 + attempt)
 
 
 def jerr(raw):
@@ -274,6 +282,24 @@ def main():
         rep.add("10. Delete: remove the test file", "DELETE access (included in 'write')", t10,
                 "PASS" if st == 204 else "FAIL", f"HTTP {st}" + ("" if st == 204 else f" {jerr(raw)}"),
                 "delete the file adapter-access-test-*.txt by hand; the adapter needs delete rights for SAP deletes")
+
+    # 11. leftovers from earlier runs ------------------------------------
+    t11 = "GET the folder's children, DELETE items named adapter-access-test-*"
+    if not drive_id or not folder:
+        skip("11. Clean up test files from earlier runs", "DELETE access", t11, "5")
+    else:
+        st, raw = call("GET", f"{base}/root:/{urllib.parse.quote(folder)}:/children?$select=id,name", headers=auth)
+        if st == 404:
+            rep.add("11. Clean up test files from earlier runs", "DELETE access", t11, "PASS", "folder not found, nothing to clean")
+        elif st != 200:
+            rep.add("11. Clean up test files from earlier runs", "DELETE access", t11, "FAIL", f"HTTP {st} {jerr(raw)}",
+                    "delete adapter-access-test-*.txt by hand")
+        else:
+            old = [i for i in json.loads(raw)["value"] if i["name"].startswith("adapter-access-test-")]
+            bad = [i["name"] for i in old if call("DELETE", f"{base}/items/{i['id']}", headers=auth)[0] != 204]
+            rep.add("11. Clean up test files from earlier runs", "DELETE access", t11, "FAIL" if bad else "PASS",
+                    f"removed {len(old) - len(bad)} leftover test file(s)" + (f"; could not remove {bad}" if bad else ""),
+                    "delete those files by hand")
 
     if drive_id:
         root = folder or '""'

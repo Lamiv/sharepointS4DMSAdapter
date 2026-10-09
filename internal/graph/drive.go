@@ -95,9 +95,11 @@ const (
 	ConflictRename  ConflictBehavior = "rename"
 )
 
-// ItemSelect is the projection used for metadata reads; it includes the
-// pre-authenticated download URL so downloads need only one Graph call.
-const ItemSelect = "id,name,eTag,cTag,size,createdDateTime,lastModifiedDateTime,webUrl,createdBy,lastModifiedBy,file,folder,parentReference,@microsoft.graph.downloadUrl"
+// Metadata reads deliberately send NO $select. Real Graph drops the
+// "@microsoft.graph.downloadUrl" annotation when it is mixed into a $select
+// field list (verified against SharePoint Online), which would silently
+// disable single-hop downloads. Without $select the full item, including
+// the pre-authenticated download URL, is returned.
 
 // EscapePath escapes each segment of a drive-relative path for use in
 // Graph path addressing (root:/a/b:/).
@@ -209,11 +211,11 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 // ---- metadata ----
 
 func (c *Client) GetItem(ctx context.Context, drive, id string) (*DriveItem, error) {
-	return c.getItem(ctx, itemURL(drive, id, "")+"?$select="+ItemSelect)
+	return c.getItem(ctx, itemURL(drive, id, ""))
 }
 
 func (c *Client) GetItemByPath(ctx context.Context, drive, path string) (*DriveItem, error) {
-	return c.getItem(ctx, itemByPathURL(drive, path, "")+"?$select="+ItemSelect)
+	return c.getItem(ctx, itemByPathURL(drive, path, ""))
 }
 
 func (c *Client) getItem(ctx context.Context, u string) (*DriveItem, error) {
@@ -235,11 +237,14 @@ type Page struct {
 func (c *Client) ListChildren(ctx context.Context, drive, path string, top int, nextLink string) (*Page, error) {
 	u := nextLink
 	if u == "" {
-		q := url.Values{"$select": {ItemSelect}}
+		q := url.Values{}
 		if top > 0 {
 			q.Set("$top", strconv.Itoa(top))
 		}
-		u = itemByPathURL(drive, path, "children") + "?" + q.Encode()
+		u = itemByPathURL(drive, path, "children")
+		if len(q) > 0 {
+			u += "?" + q.Encode()
+		}
 	} else if !strings.HasPrefix(u, c.base+"/") {
 		return nil, errors.New("invalid continuation link")
 	}
@@ -250,12 +255,15 @@ func (c *Client) ListChildren(ctx context.Context, drive, path string, top int, 
 func (c *Client) Search(ctx context.Context, drive, path, query string, top int, nextLink string) (*Page, error) {
 	u := nextLink
 	if u == "" {
-		q := url.Values{"$select": {ItemSelect}}
+		q := url.Values{}
 		if top > 0 {
 			q.Set("$top", strconv.Itoa(top))
 		}
 		esc := url.PathEscape(strings.ReplaceAll(query, "'", "''"))
-		u = itemByPathURL(drive, path, "search(q='"+esc+"')") + "?" + q.Encode()
+		u = itemByPathURL(drive, path, "search(q='"+esc+"')")
+		if len(q) > 0 {
+			u += "?" + q.Encode()
+		}
 	} else if !strings.HasPrefix(u, c.base+"/") {
 		return nil, errors.New("invalid continuation link")
 	}
@@ -476,6 +484,19 @@ func (c *Client) OpenDownload(ctx context.Context, downloadURL, rangeHdr string)
 		h = http.Header{"Range": {rangeHdr}}
 	}
 	return c.do(ctx, request{op: "content.get", method: http.MethodGet, url: downloadURL, header: h, noAuth: true})
+}
+
+// OpenContent downloads an item's content through
+// /drives/{id}/items/{id}/content, which answers with a redirect to a
+// pre-authenticated URL (followed here; the Authorization header is dropped
+// on the cross-host redirect, Range is kept). It is the fallback when an
+// item carries no download URL. The caller closes the body.
+func (c *Client) OpenContent(ctx context.Context, drive, id, rangeHdr string) (*http.Response, error) {
+	var h http.Header
+	if rangeHdr != "" {
+		h = http.Header{"Range": {rangeHdr}}
+	}
+	return c.do(ctx, request{op: "content.redirect", method: http.MethodGet, url: itemURL(drive, id, "content"), header: h})
 }
 
 // OpenThumbnail streams a thumbnail rendition (small|medium|large) of an item.

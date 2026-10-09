@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"sort"
 	"strings"
@@ -409,7 +410,8 @@ func (s *docStore) readSidecar(ctx context.Context, cr *contentRep, it *graph.Dr
 // with optimistic concurrency: an existing sidecar is replaced only if its
 // eTag is unchanged (If-Match), a new one only if none exists yet. On a
 // conflict the document is reloaded and fn re-applied, so concurrent
-// writers on other instances do not lose each other's changes.
+// writers on other instances do not lose each other's changes. Retries use
+// jittered backoff; after 12 collisions the request fails with 409.
 //
 // d is the caller's current view (nil = document not found); fn receives
 // isNew=true when no sidecar exists yet.
@@ -419,8 +421,15 @@ func (s *docStore) saveMeta(ctx context.Context, cr *contentRep, docID string, d
 	if err != nil {
 		return err
 	}
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < 12; attempt++ {
 		if attempt > 0 {
+			// Jittered backoff keeps colliding writers from retrying in lockstep.
+			wait := time.Duration(attempt) * 10 * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait/2 + time.Duration(rand.Int64N(int64(wait)))):
+			}
 			d, err = s.loadFresh(ctx, cr, docID)
 			if errors.Is(err, storage.ErrNotFound) {
 				d = nil

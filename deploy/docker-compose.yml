@@ -10,6 +10,8 @@ services:
     image: sharepoint-adapter:latest
     restart: unless-stopped
     env_file: .env
+    environment:
+      CONFIG_FILE: /etc/adapter/config.yaml   # lets `exec adapter /adapter check` find the config
     volumes:
       - ./config.yaml:/etc/adapter/config.yaml:ro
       - spool:/var/spool/adapter   # disk-backed spool (not RAM)

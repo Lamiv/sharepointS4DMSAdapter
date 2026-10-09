@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -109,5 +110,29 @@ func TestItemPath(t *testing.T) {
 	}
 	if EscapePath("/a b/c#d/") != "a%20b/c%23d" {
 		t.Fatalf("escape %q", EscapePath("/a b/c#d/"))
+	}
+}
+
+// Real Graph drops "@microsoft.graph.downloadUrl" when it is part of a
+// $select field list, so metadata reads must not send $select.
+func TestMetadataReadsSendNoSelect(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{"id":"x","value":[]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv.URL, &staticTokens{})
+	_, _ = c.GetItem(context.Background(), "d", "x")
+	_, _ = c.GetItemByPath(context.Background(), "d", "a/b")
+	_, _ = c.ListChildren(context.Background(), "d", "a", 50, "")
+	_, _ = c.Search(context.Background(), "d", "a", "q", 50, "")
+	for _, q := range seen {
+		if strings.Contains(q, "select") {
+			t.Errorf("request used $select: %q", q)
+		}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("requests: %v", seen)
 	}
 }

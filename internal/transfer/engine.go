@@ -259,8 +259,14 @@ func (e *Engine) Stream(ctx context.Context, w http.ResponseWriter, downloadURL,
 	if err != nil {
 		return DownloadResult{}, err
 	}
-	defer resp.Body.Close()
+	return e.StreamOpened(ctx, w, resp)
+}
 
+// StreamOpened writes an open content response (status, range headers and
+// body) to w and closes it. Content-Type and other descriptive headers set
+// by the caller are kept.
+func (e *Engine) StreamOpened(ctx context.Context, w http.ResponseWriter, resp *http.Response) (DownloadResult, error) {
+	defer resp.Body.Close()
 	for _, h := range passthroughHeaders {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)

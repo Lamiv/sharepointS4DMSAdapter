@@ -479,6 +479,15 @@ func (s *Service) Download(ctx context.Context, w http.ResponseWriter, repo *Rep
 			return transfer.DownloadResult{}, err
 		}
 	}
+	if url == "" {
+		// No pre-authenticated URL available: stream through /content.
+		resp, err := s.g.OpenContent(ctx, repo.DriveID, it.ID, rangeHdr)
+		if err != nil {
+			return transfer.DownloadResult{}, mapErr(err)
+		}
+		res, err := s.eng.StreamOpened(ctx, w, resp)
+		return res, mapErr(err)
+	}
 	res, err := s.eng.Stream(ctx, w, url, rangeHdr, refresh)
 	return res, mapErr(err)
 }
@@ -499,6 +508,10 @@ func (s *Service) Open(ctx context.Context, repo *Repository, it *graph.DriveIte
 		if url, err = refresh(); err != nil {
 			return nil, err
 		}
+	}
+	if url == "" {
+		resp, err := s.g.OpenContent(ctx, repo.DriveID, it.ID, rangeHdr)
+		return resp, mapErr(err)
 	}
 	resp, err := s.eng.Open(ctx, url, rangeHdr, refresh)
 	return resp, mapErr(err)

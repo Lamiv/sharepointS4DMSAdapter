@@ -24,6 +24,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"sharepointadapter/internal/accesscheck"
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/contentrepo"
@@ -54,6 +55,9 @@ func main() {
 	}
 	log := observability.NewLogger(cfg.Log.Level, cfg.Log.Format)
 	slog.SetDefault(log)
+	if flag.Arg(0) == "check" {
+		os.Exit(runCheck(cfg))
+	}
 	if err := run(cfg, log); err != nil {
 		log.Error("adapter stopped", "error", err)
 		os.Exit(1)
@@ -132,6 +136,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 	}
 
+	// Record the permissions the app actually has, to make 401/403 on later
+	// calls easy to explain.
+	if tok, err := tokens.Token(ctx); err == nil {
+		log.Info("graph application permissions", "roles", auth.TokenRoles(tok))
+	}
 	if err := contentrepo.ReserveFolders(svc, cfg.ContentServer); err != nil {
 		return err
 	}
@@ -355,4 +364,20 @@ func initHint(ctx context.Context, err error, tokens *auth.ClientCredentials) st
 		return " | token roles: " + strings.Join(roles, ",") + " | these do not allow this lookup: siteUrl needs Sites.Read.All or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; also check that admin consent was granted"
 	}
 	return " | token roles: " + strings.Join(roles, ",")
+}
+
+// runCheck implements `adapter check`: it verifies every access the adapter
+// needs against the real Graph and prints a PASS/FAIL/SKIP checklist.
+func runCheck(cfg config.Config) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log := observability.NewLogger("warn", "text")
+	transport := graph.NewTransport(cfg.Graph.MaxIdleConns)
+	tokens := auth.NewClientCredentials(cfg.Graph.AuthorityURL, cfg.Graph.TenantID, cfg.Graph.ClientID, cfg.Graph.ClientSecret, cfg.Graph.Scope,
+		&http.Client{Transport: transport, Timeout: 30 * time.Second})
+	gc := graph.New(graph.Options{
+		BaseURL: cfg.Graph.BaseURL, MaxConcurrency: cfg.Graph.MaxConcurrency,
+		MaxRetries: cfg.Graph.MaxRetries, MaxRetryBackoff: cfg.Graph.MaxRetryBackoff,
+	}, tokens, transport, log)
+	return accesscheck.Run(ctx, cfg, gc, tokens, os.Stdout)
 }

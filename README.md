@@ -110,6 +110,15 @@ Fiori notes:
 - `GET :9090/healthz` checks liveness. `GET :9090/readyz` checks Graph token and drive reachability every 30 s.
 - Each request logs one JSON line with `request_id`. The ID comes from `X-Request-ID` or `X-CorrelationID`, or is generated. It is returned to the caller and forwarded to Graph as `client-request-id`, so Microsoft support can trace it.
 
+## Verifying a deployment
+
+```bash
+docker compose -f deploy/docker-compose.yml exec adapter /adapter check   # access checklist: PASS / FAIL / SKIP per permission
+API_KEY=<key> CS_REPO=<unsigned test contRep> scripts/e2e-smoke.sh        # 33 end-to-end checks against the real SharePoint
+```
+
+`adapter check` and the smoke test were run against SharePoint Online (site and library as in [SETUP.md](SETUP.md)); they are the way to catch behaviour that the Graph emulator cannot reproduce (for example, real Graph drops the download URL when it is mixed into `$select`).
+
 ## Testing
 
 ```bash

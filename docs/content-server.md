@@ -143,7 +143,7 @@ The SAP documentation leaves these open. The adapter takes the lenient option fo
 
 **Concurrent writes.**
 - *Within one adapter instance*, writes to the same document are serialised.
-- *Across instances*, the sidecar is written conditionally on its eTag (`If-Match`). If another instance changed it in the meantime, the adapter reloads it, re-applies its change and retries up to five times, then answers 409.
+- *Across instances*, the sidecar is written conditionally on its eTag (`If-Match`). If another instance changed it in the meantime, the adapter reloads it, re-applies its change and retries up to 12 times with jittered backoff, then answers 409.
 - SAP normally doesn't modify one document from two sessions at once (KPro/DMS locks it), so conflicts should be rare.
 
 **Partial failures.** Component files and `~sapdoc.json` are separate SharePoint writes:

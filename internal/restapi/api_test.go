@@ -32,10 +32,14 @@ type env struct {
 	client *http.Client
 }
 
-func setup(t *testing.T, mode string) *env {
+func setup(t *testing.T, mode string) *env { return setupWith(t, mode, false) }
+
+// setupWith can withhold the download URL, as real Graph does when it is
+// mixed into a $select list, to exercise the /content redirect fallback.
+func setupWith(t *testing.T, mode string, omitDownloadURL bool) *env {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mh, err := graphmock.New(graphmock.Options{DataDir: t.TempDir(), Drives: []string{"drive1"}})
+	mh, err := graphmock.New(graphmock.Options{DataDir: t.TempDir(), Drives: []string{"drive1"}, OmitDownloadURL: omitDownloadURL})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,5 +375,28 @@ func TestConcurrentMixedLoad(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
+	}
+}
+
+// Regression: against real SharePoint the item came back without a download
+// URL (the annotation was sent inside $select), so every download failed
+// while the emulator, which always supplied one, hid the problem.
+func TestDownloadWithoutDownloadURLUsesContentRedirect(t *testing.T) {
+	e := setupWith(t, "proxy", true)
+	data := []byte("0123456789abcdefghij")
+	resp := e.do(t, "POST", "/repositories/DMS/documents?fileName=r.bin", "rw-key", bytes.NewReader(data), nil)
+	expect(t, resp, 201)
+	doc := decodeDoc(t, resp)
+	resp = e.do(t, "GET", "/repositories/DMS/documents/"+doc.ID+"/content", "rw-key", nil, nil)
+	expect(t, resp, 200)
+	got, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(got, data) {
+		t.Fatalf("content %q", got)
+	}
+	resp = e.do(t, "GET", "/repositories/DMS/documents/"+doc.ID+"/content", "rw-key", nil, map[string]string{"Range": "bytes=5-9"})
+	expect(t, resp, 206)
+	got, _ = io.ReadAll(resp.Body)
+	if string(got) != "56789" {
+		t.Fatalf("range %q", got)
 	}
 }

@@ -5,6 +5,7 @@ package graphmock
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -55,7 +56,10 @@ type server struct {
 	latencyMax   time.Duration
 	throttleRate float64
 	retainMax    int64
-	retained     atomic.Int64
+	// omitDownloadURL never returns the download URL, forcing clients onto
+	// the /content redirect.
+	omitDownloadURL bool
+	retained        atomic.Int64
 
 	mu       sync.RWMutex
 	items    map[string]*item
@@ -75,6 +79,8 @@ type Options struct {
 	// upload sizes are still validated but content is discarded, so long
 	// load tests do not exhaust the emulator's disk.
 	RetainBytes int64
+	// OmitDownloadURL withholds @microsoft.graph.downloadUrl entirely.
+	OmitDownloadURL bool
 }
 
 // New returns an http.Handler emulating Graph, Entra ID token endpoint,
@@ -84,15 +90,16 @@ func New(o Options) (http.Handler, error) {
 		return nil, err
 	}
 	s := &server{
-		dataDir:      o.DataDir,
-		latencyMin:   o.LatencyMin,
-		latencyMax:   o.LatencyMax,
-		throttleRate: o.ThrottleRate,
-		retainMax:    o.RetainBytes,
-		items:        map[string]*item{},
-		children:     map[string]map[string]string{},
-		roots:        map[string]string{},
-		sessions:     map[string]*session{},
+		dataDir:         o.DataDir,
+		latencyMin:      o.LatencyMin,
+		latencyMax:      o.LatencyMax,
+		throttleRate:    o.ThrottleRate,
+		retainMax:       o.RetainBytes,
+		omitDownloadURL: o.OmitDownloadURL,
+		items:           map[string]*item{},
+		children:        map[string]map[string]string{},
+		roots:           map[string]string{},
+		sessions:        map[string]*session{},
 	}
 	if len(o.Drives) == 0 {
 		o.Drives = []string{"drive1"}
@@ -117,6 +124,14 @@ func (s *server) AddFile(drive, path string, data []byte) string {
 // Seeder is implemented by the handler returned from New.
 type Seeder interface {
 	AddFile(drive, path string, data []byte) string
+}
+
+// mockToken returns a JWT-shaped token (like Entra's) carrying application
+// roles, so role diagnostics can be exercised. Graph calls only check the
+// "mock-" prefix.
+func mockToken() string {
+	b := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	return "mock-" + b(`{"alg":"none"}`) + "." + b(`{"appid":"mock-app","tid":"mock-tenant","roles":["Sites.ReadWrite.All"]}`) + "." + newID()
 }
 
 func newID() string {
@@ -152,7 +167,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.EscapedPath()
 	switch {
 	case strings.HasSuffix(p, "/oauth2/v2.0/token") && r.Method == http.MethodPost:
-		writeJSON(w, 200, map[string]any{"token_type": "Bearer", "expires_in": 3599, "access_token": "mock-" + newID()})
+		writeJSON(w, 200, map[string]any{"token_type": "Bearer", "expires_in": 3599, "access_token": mockToken()})
 	case strings.HasPrefix(p, "/upload/"):
 		s.delay()
 		s.handleSession(w, r, strings.TrimPrefix(p, "/upload/"))
@@ -332,7 +347,12 @@ func (s *server) toJSONLocked(r *http.Request, it *item) map[string]any {
 		m["folder"] = map[string]any{"childCount": len(s.children[it.ID])}
 	} else {
 		m["file"] = map[string]any{"mimeType": mimeOf(it.Name)}
-		m["@microsoft.graph.downloadUrl"] = s.downloadURL(r, it)
+		// Real Graph drops the annotation when it is mixed into a $select
+		// list; it is returned with no $select or $select=<annotation>.
+		sel := r.URL.Query().Get("$select")
+		if !s.omitDownloadURL && (sel == "" || sel == "@microsoft.graph.downloadUrl") {
+			m["@microsoft.graph.downloadUrl"] = s.downloadURL(r, it)
+		}
 	}
 	return m
 }

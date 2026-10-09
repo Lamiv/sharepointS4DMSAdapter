@@ -259,7 +259,13 @@ docker compose -f deploy/docker-compose.yml ps
 
 The first build takes 1–3 minutes. After about 15 seconds the status should show **healthy**. The container restarts by itself after crashes and reboots.
 
-Now run these checks in order:
+Now run these checks in order. **The built-in access check comes first**: it tests every access the adapter needs on the real SharePoint (token, permissions, site, library, upload, download, upload session, versions, delete), prints the access required, what was tested, and PASS / FAIL / SKIP with a fix for each, and removes its own test files:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec adapter /adapter check
+```
+
+It exits 0 when everything passed. Then the manual checks:
 
 ```bash
 # 1. Connected to Microsoft and the SharePoint location? -> "ready"
@@ -274,6 +280,13 @@ curl -s -H "X-API-Key: $KEY" "http://localhost:8080/api/v1/repositories/DMS/chil
 
 # 3. SAP Content Server interface answers -> serverStatus="running" and a contRep="Z1" line
 curl -s "http://localhost:8090/ContentServer/ContentServer.dll?serverInfo&pVersion=0047"
+```
+
+For a fuller end-to-end test, the repository includes `scripts/e2e-smoke.sh`. It exercises uploads and downloads (including ranges, a 6 MB resumable upload and an upload without Content-Length), versions, paging, the SAP interface and 10 parallel clients, then deletes everything it created. For the SAP part you need a repository with `signature: none` (add a temporary one such as `contRep: ZT` to `config.yaml` and remove it afterwards):
+
+```bash
+API_KEY=$(grep '^ADAPTER_API_KEY_S4=' deploy/.env | cut -d= -f2-) scripts/e2e-smoke.sh            # REST API only
+API_KEY=... CS_REPO=ZT SIGNED_CS_REPO=Z1 scripts/e2e-smoke.sh                                    # plus the SAP interface
 ```
 
 Check 2 should create `SAP_DMS/smoke-test/readme.md` in SharePoint; open the site to see it. Delete the test folder afterwards.
@@ -368,6 +381,7 @@ All commands run from `/opt/sharepoint-adapter`:
 |---|---|---|
 | `configuration error: ...` and the container exits | A typo or missing value in `config.yaml` / `.env` | The message names the field. Fix it and run `up -d`. |
 | Log: `token endpoint returned 401: invalid_client` | Wrong or expired client secret, or a Secret **ID** used instead of the **Value** | Create a new secret and update `.env`. |
+| `adapter check` reports FAIL | A permission or grant is missing | Each FAIL names the cause and the fix; the first failure is usually the root cause and later checks show SKIP until it is fixed. |
 | `readyz`/log: `the access token has NO application permissions (roles)` | Graph **application** permissions are missing, or admin consent wasn't granted | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–5. |
 | `readyz`/log: `401 generalException` with `token roles: ...` | The token's permissions don't cover this lookup: `siteUrl` needs `Sites.*` permissions, a OneDrive `userId` needs `Files.ReadWrite.All` | Add the matching permission and grant admin consent, or switch between `siteUrl` and `userId` (see [section 6.2](#62-settings-deployconfigyaml)). |
 | Log: `repository initialisation failed; retrying` | `siteUrl`, `userId`, `driveName` or permissions are wrong, or an unused example repository is still in the config | The message after it says why. Rerun [section 3](#3-test-the-microsoft-credentials) with the same values. |
