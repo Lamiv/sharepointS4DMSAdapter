@@ -196,12 +196,14 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 	if err := decode(resp, &list); err != nil {
 		return "", err
 	}
+	var names []string
 	for _, d := range list.Value {
 		if strings.EqualFold(d.Name, driveName) {
 			return d.ID, nil
 		}
+		names = append(names, d.Name)
 	}
-	return "", fmt.Errorf("document library %q not found in site %s", driveName, siteID)
+	return "", fmt.Errorf("document library %q not found in site %s; libraries available to this app: [%s] (driveName is the library's display name, not necessarily its URL segment)", driveName, siteID, strings.Join(names, ", "))
 }
 
 // ---- metadata ----
