@@ -133,8 +133,22 @@ func prefixed(s string) string {
 
 // ---- drive resolution ----
 
-// ResolveDrive finds the drive ID for a site (by ID or URL) and optional library name.
-func (c *Client) ResolveDrive(ctx context.Context, siteID, siteURL, driveName string) (string, error) {
+// ResolveDrive finds the drive ID for a user's OneDrive (userID), or for a
+// site (by ID or URL) and optional library name.
+func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driveName string) (string, error) {
+	if userID != "" {
+		var d struct {
+			ID string `json:"id"`
+		}
+		resp, err := c.do(ctx, request{op: "drive.user", method: http.MethodGet, url: "/users/" + url.PathEscape(userID) + "/drive?$select=id"})
+		if err != nil {
+			return "", err
+		}
+		if err := decode(resp, &d); err != nil {
+			return "", err
+		}
+		return d.ID, nil
+	}
 	if siteID == "" {
 		u, err := url.Parse(siteURL)
 		if err != nil || u.Host == "" {

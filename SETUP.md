@@ -62,7 +62,7 @@ Documents are stored in SharePoint. The container itself keeps no data.
    |---|---|---|
    | SharePoint site (recommended) | `Sites.Selected` | Only the sites you grant (step 6) |
    | SharePoint site (simpler) | `Sites.ReadWrite.All` | All sites in the tenant |
-   | OneDrive for Business | `Files.ReadWrite.All` or `Sites.ReadWrite.All` | All files/sites in the tenant |
+   | OneDrive for Business | `Files.ReadWrite.All` (with `userId:` in the config) or `Sites.ReadWrite.All` (with `siteUrl:`) | All files/sites in the tenant |
 
 5. Click **Grant admin consent for <tenant>**. The status must show a green tick.
 6. *(Only with `Sites.Selected`.)* Grant the app write access to the site. In [Graph Explorer](https://developer.microsoft.com/graph/graph-explorer), signed in as an admin, run:
@@ -189,19 +189,29 @@ Fill in every line:
 
 ```bash
 cp config.example.yaml config.yaml
+chmod 644 config.yaml      # the container runs as a non-root user and must read it (no secrets inside)
 nano config.yaml
 ```
 
 The example file is fully commented. You must change two sections.
 
-**`repositories:`** says where documents are stored. Replace the two examples with your own location, and **delete any example you don't use**: the adapter retries at startup until every repository listed resolves.
+**`repositories:`** says where documents are stored. Identify the library in **one** of these ways:
+
+| You have | Use | App permission needed |
+|---|---|---|
+| A SharePoint site URL | `siteUrl:` (+ `driveName:` if the site has several libraries) | `Sites.ReadWrite.All`, or `Sites.Selected` with a site grant |
+| A OneDrive for Business (a user's personal storage) | `userId:` = the user's login name, e.g. `jane@contoso.com` | `Files.ReadWrite.All` |
+| The Graph drive ID (starts with `b!`) | `driveId:` | `Files.ReadWrite.All` or `Sites.ReadWrite.All` |
+
+Example, replacing the two examples in the file with one. **Delete any example you don't use**: The adapter retries at startup until every repository listed resolves.
 
 ```yaml
 repositories:
   - id: DMS
-    siteUrl: https://<tenant>.sharepoint.com/sites/<site>      # or https://<tenant>-my.sharepoint.com/personal/<user>
+    siteUrl: https://<tenant>.sharepoint.com/sites/<site>
     # driveName: Documents      # only if the site has several document libraries
     rootPath: SAP_DMS           # folder inside the library; created automatically
+  # OneDrive instead of a site:  userId: jane@contoso.com   (instead of siteUrl)
 ```
 
 **`contentServer:`** sets up the SAP Content Server interface. The `contRep` value must equal the repository ID your SAP Basis team creates in OAC0. Agree on it with them first, e.g. `Z1`.
@@ -260,7 +270,7 @@ curl -s "http://localhost:8090/ContentServer/ContentServer.dll?serverInfo&pVersi
 
 Check 2 should create `SAP_DMS/smoke-test/readme.md` in SharePoint; open the site to see it. Delete the test folder afterwards.
 
-If `readyz` returns `not ready`, check the logs:
+`readyz` answers `503 not ready: <reason>` while something is wrong, and names the cause (for example the Graph error, and the permissions the access token actually carries). If it returns `not ready`, read the message, then check the logs:
 
 ```bash
 docker compose -f deploy/docker-compose.yml logs --tail 50 adapter
@@ -350,8 +360,11 @@ All commands run from `/opt/sharepoint-adapter`:
 |---|---|---|
 | `configuration error: ...` and the container exits | A typo or missing value in `config.yaml` / `.env` | The message names the field. Fix it and run `up -d`. |
 | Log: `token endpoint returned 401: invalid_client` | Wrong or expired client secret, or a Secret **ID** used instead of the **Value** | Create a new secret and update `.env`. |
-| Log: `repository initialisation failed; retrying` | `siteUrl`, `driveName` or permissions are wrong, or an unused example repository is still in the config | Rerun [section 3](#3-test-the-microsoft-credentials) with the same values. |
-| `readyz` → `not ready`, log shows 403 | Missing Graph permission or admin consent; `Sites.Selected` without a site grant | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–6 |
+| `readyz`/log: `the access token has NO application permissions (roles)` | Graph **application** permissions are missing, or admin consent wasn't granted | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–5. |
+| `readyz`/log: `401 generalException` with `token roles: ...` | The token's permissions don't cover this lookup: `siteUrl` needs `Sites.*` permissions, a OneDrive `userId` needs `Files.ReadWrite.All` | Add the matching permission and grant admin consent, or switch between `siteUrl` and `userId` (see [section 6.2](#62-settings-deployconfigyaml)). |
+| Log: `repository initialisation failed; retrying` | `siteUrl`, `userId`, `driveName` or permissions are wrong, or an unused example repository is still in the config | The message after it says why. Rerun [section 3](#3-test-the-microsoft-credentials) with the same values. |
+| Log: `open /etc/adapter/config.yaml: permission denied` | The container runs as a non-root user and can't read the file | `chmod 644 deploy/config.yaml` (it holds no secrets; those are in `.env`). |
+| `readyz` → `not ready` with 403 | Missing Graph permission or admin consent; `Sites.Selected` without a site grant | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–6 |
 | REST API returns 401 | Missing or wrong `X-API-Key` | Use the key from `.env` exactly. |
 | REST API returns 404 for a repository | The key isn't allowed for that repository | Check `auth.apiKeys[*].repositories`. |
 | SAP: 401 `no certificate for authId` | The certificate was never sent | OAC0 → Send certificate |

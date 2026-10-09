@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,4 +143,26 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// TokenRoles returns the application roles (the "roles" claim) of an
+// access token without verifying it. It is used only for diagnostics: a
+// token with no roles is rejected by Graph with 401, which is otherwise
+// hard to tell apart from a bad credential.
+func TokenRoles(token string) []string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		Roles []string `json:"roles"`
+	}
+	if json.Unmarshal(raw, &claims) != nil {
+		return nil
+	}
+	return claims.Roles
 }

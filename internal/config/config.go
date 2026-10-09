@@ -129,8 +129,12 @@ type JWTConfig struct {
 
 type RepositoryConfig struct {
 	ID string `yaml:"id"`
-	// One of DriveID, SiteID (+DriveName) or SiteURL identifies the library.
-	DriveID   string `yaml:"driveId"`
+	// One of DriveID, UserID, SiteID (+DriveName) or SiteURL identifies the library.
+	DriveID string `yaml:"driveId"`
+	// UserID is a user principal name or object ID whose OneDrive is used
+	// (resolved through /users/{id}/drive). Works with the Files.ReadWrite.All
+	// application permission; the site lookup needs Sites.* permissions.
+	UserID    string `yaml:"userId"`
 	SiteID    string `yaml:"siteId"`
 	SiteURL   string `yaml:"siteUrl"`
 	DriveName string `yaml:"driveName"`
@@ -276,8 +280,8 @@ func (c Config) Validate() error {
 			errs = append(errs, fmt.Errorf("duplicate repository id %q", r.ID))
 		}
 		seen[r.ID] = true
-		if r.DriveID == "" && r.SiteID == "" && r.SiteURL == "" {
-			errs = append(errs, fmt.Errorf("repository %q: one of driveId, siteId or siteUrl is required", r.ID))
+		if r.DriveID == "" && r.UserID == "" && r.SiteID == "" && r.SiteURL == "" {
+			errs = append(errs, fmt.Errorf("repository %q: one of driveId, userId, siteId or siteUrl is required", r.ID))
 		}
 	}
 	if c.Server.Enabled("contentrepo") && len(c.ContentServer.Repositories) == 0 {

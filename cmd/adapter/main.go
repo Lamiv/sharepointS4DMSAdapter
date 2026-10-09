@@ -16,6 +16,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -80,6 +81,30 @@ func run(cfg config.Config, log *slog.Logger) error {
 		SpoolDir:        cfg.Transfer.SpoolDir,
 	})
 
+	// Health endpoints come up first so a failing start is diagnosable:
+	// /readyz reports why the adapter is not ready instead of resetting
+	// the connection.
+	var ready atomic.Bool
+	var status atomic.Value // string: current readiness reason
+	status.Store("starting: resolving repositories")
+	adminMux := adminHandler(cfg.Server.EnablePprof, &ready, &status)
+	admin := newServer(cfg.Server, cfg.Server.AdminAddr, adminMux)
+	admin.TLSConfig = nil
+	errCh := make(chan error, 8)
+	serve := func(s *http.Server, useTLS bool) {
+		log.Info("listening", "addr", s.Addr, "tls", useTLS, "version", version)
+		var err error
+		if useTLS {
+			err = s.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
+		} else {
+			err = s.ListenAndServe()
+		}
+		if !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("%s: %w", s.Addr, err)
+		}
+	}
+	go serve(admin, false)
+
 	// Resolving site/library IDs needs Graph; retry so the container
 	// survives starting before the network or IdP is reachable.
 	var svc *storage.Service
@@ -95,10 +120,14 @@ func run(cfg config.Config, log *slog.Logger) error {
 			return ctx.Err()
 		}
 		wait := min(time.Duration(attempt)*2*time.Second, 30*time.Second)
-		log.Error("repository initialisation failed; retrying", "error", err, "retry_in", wait)
+		hint := initHint(ctx, err, tokens)
+		status.Store("not ready: repository initialisation failed: " + err.Error() + hint)
+		log.Error("repository initialisation failed; retrying", "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-errCh:
+			return err
 		case <-time.After(wait):
 		}
 	}
@@ -118,8 +147,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		log.Warn("inbound authentication is DISABLED; do not use in production")
 	}
 
-	var ready atomic.Bool
-	go readinessLoop(ctx, svc, &ready, log)
+	go readinessLoop(ctx, svc, &ready, &status, log)
 
 	var servers []*http.Server
 	if cfg.Server.Enabled("rest") {
@@ -131,7 +159,6 @@ func run(cfg config.Config, log *slog.Logger) error {
 		servers = append(servers, newServer(cfg.Server, cfg.Server.RESTAddr,
 			observability.Middleware("rest", cfg.Server.MaxInFlight, log, api.Handler())))
 	}
-	adminMux := adminHandler(cfg.Server.EnablePprof, &ready)
 	if cfg.Server.Enabled("contentrepo") {
 		cs, err := contentrepo.New(ctx, svc, cfg.ContentServer, cfg.Graph.MetadataCacheTTL, version, log)
 		if err != nil {
@@ -145,27 +172,10 @@ func run(cfg config.Config, log *slog.Logger) error {
 	if len(servers) == 0 {
 		return errors.New("no interfaces enabled (server.interfaces)")
 	}
-	admin := newServer(cfg.Server, cfg.Server.AdminAddr, adminMux)
-	admin.TLSConfig = nil
-
-	errCh := make(chan error, len(servers)+1)
-	serve := func(s *http.Server, useTLS bool) {
-		log.Info("listening", "addr", s.Addr, "tls", useTLS, "version", version)
-		var err error
-		if useTLS {
-			err = s.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
-		} else {
-			err = s.ListenAndServe()
-		}
-		if !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("%s: %w", s.Addr, err)
-		}
-	}
 	useTLS := cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != ""
 	for _, s := range servers {
 		go serve(s, useTLS)
 	}
-	go serve(admin, false)
 
 	select {
 	case <-ctx.Done():
@@ -200,11 +210,16 @@ func newServer(sc config.ServerConfig, addr string, h http.Handler) *http.Server
 	}
 }
 
-func readinessLoop(ctx context.Context, svc *storage.Service, ready *atomic.Bool, log *slog.Logger) {
+func readinessLoop(ctx context.Context, svc *storage.Service, ready *atomic.Bool, status *atomic.Value, log *slog.Logger) {
 	check := func() {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		err := svc.Ping(cctx)
+		if err != nil {
+			status.Store("not ready: SharePoint check failed: " + err.Error())
+		} else {
+			status.Store("ready")
+		}
 		if was := ready.Swap(err == nil); was != (err == nil) {
 			if err != nil {
 				log.Error("readiness check failed", "error", err)
@@ -226,7 +241,7 @@ func readinessLoop(ctx context.Context, svc *storage.Service, ready *atomic.Bool
 	}
 }
 
-func adminHandler(enablePprof bool, ready *atomic.Bool) *http.ServeMux {
+func adminHandler(enablePprof bool, ready *atomic.Bool, status *atomic.Value) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -234,7 +249,8 @@ func adminHandler(enablePprof bool, ready *atomic.Bool) *http.ServeMux {
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if !ready.Load() {
-			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			reason, _ := status.Load().(string)
+			http.Error(w, reason, http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte("ready\n"))
@@ -315,4 +331,28 @@ func certsCLI(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// initHint explains a failed repository lookup. A 401 from Graph although
+// Entra issued a token almost always means the token carries no (or the
+// wrong) application permissions, so the token's roles are shown.
+func initHint(ctx context.Context, err error, tokens *auth.ClientCredentials) string {
+	var ge *graph.Error
+	if !errors.As(err, &ge) {
+		return ""
+	}
+	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	tok, terr := tokens.Token(tctx)
+	if terr != nil {
+		return " | the access token itself could not be obtained: " + terr.Error()
+	}
+	roles := auth.TokenRoles(tok)
+	switch {
+	case ge.Status == http.StatusUnauthorized && len(roles) == 0:
+		return " | the access token has NO application permissions (roles): add Microsoft Graph APPLICATION permissions to the app registration and click 'Grant admin consent'"
+	case ge.Status == http.StatusUnauthorized || ge.Status == http.StatusForbidden:
+		return " | token roles: " + strings.Join(roles, ",") + " | these do not allow this lookup: siteUrl needs Sites.Read.All or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; also check that admin consent was granted"
+	}
+	return " | token roles: " + strings.Join(roles, ",")
 }

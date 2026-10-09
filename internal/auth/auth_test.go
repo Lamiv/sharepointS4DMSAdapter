@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -71,5 +72,20 @@ func TestAPIKeys(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer nope")
 	if _, err := a.Authenticate(r); err == nil {
 		t.Fatal("expected failure")
+	}
+}
+
+func TestTokenRoles(t *testing.T) {
+	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	tok := enc(`{"alg":"none"}`) + "." + enc(`{"roles":["Sites.ReadWrite.All","Files.ReadWrite.All"]}`) + ".sig"
+	if got := TokenRoles(tok); len(got) != 2 || got[0] != "Sites.ReadWrite.All" {
+		t.Fatalf("roles %v", got)
+	}
+	none := enc(`{}`) + "." + enc(`{"aud":"graph"}`) + ".sig"
+	if got := TokenRoles(none); len(got) != 0 {
+		t.Fatalf("expected no roles, got %v", got)
+	}
+	if TokenRoles("garbage") != nil {
+		t.Fatal("garbage token must yield no roles")
 	}
 }

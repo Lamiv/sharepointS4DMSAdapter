@@ -47,7 +47,8 @@ auth:
 
 repositories:
   - id: DMS
-    # Use driveId when known; otherwise siteUrl (+ driveName) or siteId.
+    # Identify the library by ONE of: siteUrl (+ driveName), siteId, driveId, or
+    # userId (a OneDrive for Business, e.g. jane@contoso.com; needs Files.ReadWrite.All).
     siteUrl: https://contoso.sharepoint.com/sites/SAPDocuments
     driveName: Documents
     rootPath: S4HANA/DMS

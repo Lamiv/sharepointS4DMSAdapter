@@ -152,7 +152,7 @@ func NewService(ctx context.Context, g *graph.Client, eng *transfer.Engine, cfgs
 		drive := rc.DriveID
 		if drive == "" {
 			var err error
-			if drive, err = g.ResolveDrive(ctx, rc.SiteID, rc.SiteURL, rc.DriveName); err != nil {
+			if drive, err = g.ResolveDrive(ctx, rc.UserID, rc.SiteID, rc.SiteURL, rc.DriveName); err != nil {
 				return nil, fmt.Errorf("repository %s: resolve drive: %w", rc.ID, err)
 			}
 			log.Info("resolved repository drive", "repository", rc.ID, "drive_id", drive)
