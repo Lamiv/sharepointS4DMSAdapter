@@ -65,10 +65,10 @@ Certificates sent with `putCert` are inactive until an administrator activates t
 
 ```bash
 docker compose -f deploy/docker-compose.yml exec adapter /adapter certs list
-docker compose -f deploy/docker-compose.yml exec -e ADMIN_TOKEN=$ADMIN_TOKEN adapter /adapter certs activate Z1 "CN=S4H"
+docker compose -f deploy/docker-compose.yml exec adapter /adapter certs activate Z1 "CN=S4H"
 ```
 
-`list` shows each certificate's subject, fingerprint, expiry and state. Compare the fingerprint with the System PSE certificate in STRUST before activating. Use `deactivate` to revoke a certificate.
+The CLI uses the `ADMIN_TOKEN` the container already has from `deploy/.env`. `list` shows each certificate's subject, fingerprint, expiry and state. Compare the fingerprint with the System PSE certificate in STRUST before activating. Use `deactivate` to revoke a certificate.
 
 The same functions are available over HTTP on the admin port, which only listens on localhost:
 

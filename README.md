@@ -1,5 +1,7 @@
 # SharePointAdapter
 
+> **Installing it?** Follow [SETUP.md](SETUP.md), the step-by-step guide from Entra app registration to a running server connected to SAP.
+
 An adapter that lets SAP S/4HANA 2025 Private Cloud store and retrieve images and documents in SharePoint Online through Microsoft Graph. It is a single Go binary in a distroless container, built for a Docker host on Ubuntu.
 
 ```
