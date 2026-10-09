@@ -30,22 +30,61 @@ type Options struct {
 	SpoolDir        string
 }
 
+// Every transfer buffer (upload, chunk and download copy buffers) is
+// reserved against MemoryBudget for its full allocated size before use, so
+// the budget is a hard ceiling on transfer buffer memory. Small uploads use
+// size classes so a 50 KiB upload does not pin a 4 MiB buffer.
 type Engine struct {
 	g      *graph.Client
 	opts   Options
 	budget *semaphore.Weighted
 
-	chunkPool  sync.Pool // []byte of ChunkSize
-	simplePool sync.Pool // []byte of SimpleUploadMax
-	copyPool   sync.Pool // []byte of 256 KiB for streaming downloads
+	classes []bufClass // ascending sizes, last = SimpleUploadMax
+	chunk   bufClass   // ChunkSize, for upload sessions
+	copyBuf bufClass   // streaming downloads
 }
+
+type bufClass struct {
+	size int64
+	pool *sync.Pool
+}
+
+func newClass(size int64) bufClass {
+	return bufClass{size: size, pool: &sync.Pool{New: func() any { b := make([]byte, size); return &b }}}
+}
+
+const copyBufSize = 256 << 10
 
 func New(g *graph.Client, opts Options) *Engine {
 	e := &Engine{g: g, opts: opts, budget: semaphore.NewWeighted(opts.MemoryBudget)}
-	e.chunkPool.New = func() any { b := make([]byte, opts.ChunkSize); return &b }
-	e.simplePool.New = func() any { b := make([]byte, opts.SimpleUploadMax); return &b }
-	e.copyPool.New = func() any { b := make([]byte, 256<<10); return &b }
+	for _, sz := range []int64{64 << 10, 512 << 10} {
+		if sz < opts.SimpleUploadMax {
+			e.classes = append(e.classes, newClass(sz))
+		}
+	}
+	e.classes = append(e.classes, newClass(opts.SimpleUploadMax))
+	e.chunk = newClass(opts.ChunkSize)
+	e.copyBuf = newClass(min(copyBufSize, opts.MemoryBudget))
 	return e
+}
+
+// buffer reserves budget for, and returns, a pooled buffer of class c.
+func (e *Engine) buffer(ctx context.Context, c bufClass) (*[]byte, func(), error) {
+	release, err := e.reserve(ctx, c.size)
+	if err != nil {
+		return nil, nil, err
+	}
+	bp := c.pool.Get().(*[]byte)
+	return bp, func() { c.pool.Put(bp); release() }, nil
+}
+
+func (e *Engine) classFor(n int64) bufClass {
+	for _, c := range e.classes {
+		if n <= c.size {
+			return c
+		}
+	}
+	return e.classes[len(e.classes)-1]
 }
 
 // Target identifies where an upload goes: a new file by path, or new
@@ -55,7 +94,7 @@ type Target struct {
 	Path     string // drive-relative path incl. file name (new file)
 	ItemID   string // existing item (replace content)
 	Conflict graph.ConflictBehavior
-	IfMatch  string
+	IfMatch  string // optimistic concurrency: for path targets only honoured by single-request uploads
 }
 
 func (e *Engine) reserve(ctx context.Context, n int64) (func(), error) {
@@ -84,13 +123,11 @@ func (e *Engine) Upload(ctx context.Context, t Target, body io.Reader, size int6
 }
 
 func (e *Engine) uploadSimple(ctx context.Context, t Target, body io.Reader, size int64) (*graph.DriveItem, error) {
-	release, err := e.reserve(ctx, max(size, 1))
+	bp, done, err := e.buffer(ctx, e.classFor(size))
 	if err != nil {
 		return nil, err
 	}
-	defer release()
-	bp := e.simplePool.Get().(*[]byte)
-	defer e.simplePool.Put(bp)
+	defer done()
 	buf := (*bp)[:size]
 	if _, err := io.ReadFull(body, buf); err != nil {
 		return nil, fmt.Errorf("read upload body: %w", err)
@@ -106,7 +143,7 @@ func (e *Engine) putSmall(ctx context.Context, t Target, data []byte) (*graph.Dr
 	if t.ItemID != "" {
 		it, err = e.g.ReplaceSmall(ctx, t.Drive, t.ItemID, data, t.IfMatch)
 	} else {
-		it, err = e.g.UploadSmallByPath(ctx, t.Drive, t.Path, t.Conflict, data)
+		it, err = e.g.UploadSmallByPath(ctx, t.Drive, t.Path, t.Conflict, data, t.IfMatch)
 	}
 	if err == nil {
 		observability.BytesTransferred.WithLabelValues("upload").Add(float64(len(data)))
@@ -130,15 +167,12 @@ func (e *Engine) uploadChunked(ctx context.Context, t Target, body io.Reader, si
 	observability.TransfersActive.WithLabelValues("upload", "session").Inc()
 	defer observability.TransfersActive.WithLabelValues("upload", "session").Dec()
 
-	chunk := min(e.opts.ChunkSize, size)
-	release, err := e.reserve(ctx, chunk)
+	bp, done, err := e.buffer(ctx, e.chunk)
 	if err != nil {
 		e.g.CancelUploadSession(context.WithoutCancel(ctx), sess)
 		return nil, err
 	}
-	defer release()
-	bp := e.chunkPool.Get().(*[]byte)
-	defer e.chunkPool.Put(bp)
+	defer done()
 
 	var offset int64
 	for offset < size {
@@ -165,33 +199,29 @@ func (e *Engine) uploadChunked(ctx context.Context, t Target, body io.Reader, si
 // uploadUnknown handles bodies without Content-Length (chunked encoding or
 // multipart parts): small bodies stay in memory, large ones spool to disk.
 func (e *Engine) uploadUnknown(ctx context.Context, t Target, body io.Reader) (*graph.DriveItem, error) {
-	release, err := e.reserve(ctx, e.opts.SimpleUploadMax)
+	bp, done, err := e.buffer(ctx, e.classes[len(e.classes)-1])
 	if err != nil {
 		return nil, err
 	}
-	bp := e.simplePool.Get().(*[]byte)
 	buf := *bp
 	n, err := io.ReadFull(body, buf)
 	if err == io.EOF || err == io.ErrUnexpectedEOF {
-		defer func() { e.simplePool.Put(bp); release() }()
+		defer done()
 		return e.putSmall(ctx, t, buf[:n])
 	}
 	if err != nil {
-		e.simplePool.Put(bp)
-		release()
+		done()
 		return nil, fmt.Errorf("read upload body: %w", err)
 	}
 
 	f, err := os.CreateTemp(e.opts.SpoolDir, "upload-*")
 	if err != nil {
-		e.simplePool.Put(bp)
-		release()
+		done()
 		return nil, fmt.Errorf("spool: %w", err)
 	}
 	defer func() { f.Close(); os.Remove(f.Name()) }()
 	_, werr := f.Write(buf[:n])
-	e.simplePool.Put(bp)
-	release()
+	done()
 	if werr != nil {
 		return nil, fmt.Errorf("spool: %w", werr)
 	}
@@ -240,7 +270,7 @@ func (e *Engine) Stream(ctx context.Context, w http.ResponseWriter, downloadURL,
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
 	w.WriteHeader(resp.StatusCode)
-	n, err := e.Copy(w, resp.Body)
+	n, err := e.Copy(ctx, w, resp.Body)
 	return DownloadResult{Status: resp.StatusCode, Bytes: n}, err
 }
 
@@ -257,19 +287,22 @@ func (e *Engine) Open(ctx context.Context, downloadURL, rangeHdr string, refresh
 	return resp, err
 }
 
-// Copy streams src to dst through a pooled buffer and records metrics.
-func (e *Engine) Copy(dst io.Writer, src io.Reader) (int64, error) {
+// Copy streams src to dst through a pooled, budgeted buffer and records metrics.
+func (e *Engine) Copy(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	bp, done, err := e.buffer(ctx, e.copyBuf)
+	if err != nil {
+		return 0, err
+	}
+	defer done()
 	observability.TransfersActive.WithLabelValues("download", "stream").Inc()
 	defer observability.TransfersActive.WithLabelValues("download", "stream").Dec()
-	bp := e.copyPool.Get().(*[]byte)
-	defer e.copyPool.Put(bp)
 	n, err := io.CopyBuffer(writerOnly{dst}, src, *bp)
 	observability.BytesTransferred.WithLabelValues("download").Add(float64(n))
 	return n, err
 }
 
 // StreamResponse copies an already-open Graph response (e.g. thumbnails).
-func (e *Engine) StreamResponse(w http.ResponseWriter, resp *http.Response) (int64, error) {
+func (e *Engine) StreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response) (int64, error) {
 	defer resp.Body.Close()
 	for _, h := range append(passthroughHeaders, "Content-Type") {
 		if v := resp.Header.Get(h); v != "" {
@@ -277,7 +310,7 @@ func (e *Engine) StreamResponse(w http.ResponseWriter, resp *http.Response) (int
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	return e.Copy(w, resp.Body)
+	return e.Copy(ctx, w, resp.Body)
 }
 
 // isExpired reports whether a pre-authenticated URL was rejected because

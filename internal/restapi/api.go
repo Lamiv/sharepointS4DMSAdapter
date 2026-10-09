@@ -238,7 +238,7 @@ func (a *API) thumbnail(w http.ResponseWriter, r *http.Request, repo *storage.Re
 		return
 	}
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	_, _ = a.svc.Engine().StreamResponse(w, resp)
+	_, _ = a.svc.Engine().StreamResponse(r.Context(), w, resp)
 }
 
 func (a *API) versions(w http.ResponseWriter, r *http.Request, repo *storage.Repository) {
@@ -530,7 +530,7 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 		problem(w, r, http.StatusNotFound, "Not Found", "document not found")
 	case errors.Is(err, storage.ErrInvalid):
 		problem(w, r, http.StatusBadRequest, "Bad Request", err.Error())
-	case errors.Is(err, storage.ErrReadOnly):
+	case errors.Is(err, storage.ErrReadOnly), errors.Is(err, storage.ErrReserved):
 		problem(w, r, http.StatusForbidden, "Forbidden", err.Error())
 	case errors.Is(err, transfer.ErrTooLarge), errors.As(err, &mbe):
 		problem(w, r, http.StatusRequestEntityTooLarge, "Payload Too Large", fmt.Sprintf("maximum upload size is %d bytes", a.opts.MaxUpload))

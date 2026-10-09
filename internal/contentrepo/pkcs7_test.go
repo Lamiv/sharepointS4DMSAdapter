@@ -167,3 +167,20 @@ func benchVerify(b *testing.B, sigFile, certFile string) {
 		}
 	}
 }
+
+// Regression: DER certificates ending in a byte that equals ASCII whitespace
+// were corrupted by trimming before parsing.
+func TestCertificateDERWithTrailingWhitespaceByte(t *testing.T) {
+	for i := 0; i < 400; i++ {
+		s := newSigner(t, "S4H")
+		last := s.cert.Raw[len(s.cert.Raw)-1]
+		if last != ' ' && (last < '\t' || last > '\r') {
+			continue
+		}
+		if _, err := parseCertificateLenient(s.cert.Raw); err != nil {
+			t.Fatalf("DER ending in 0x%02x rejected: %v", last, err)
+		}
+		return
+	}
+	t.Skip("no certificate with a trailing whitespace byte generated")
+}

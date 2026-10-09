@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -236,16 +237,107 @@ func (c *docCache) drop(key string) {
 type docStore struct {
 	svc   *storage.Service
 	cache *docCache
+	locks keyedMutex
 }
 
 func cacheKey(cr *contentRep, docID string) string { return cr.id + "|" + docID }
 
-// load reads a document: one folder listing plus the sidecar.
+// keyedMutex serialises modifications of one document inside this process.
+// Across instances, sidecar writes are additionally guarded by If-Match.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedEntry
+}
+
+type keyedEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]*keyedEntry{}
+	}
+	e := k.m[key]
+	if e == nil {
+		e = &keyedEntry{}
+		k.m[key] = e
+	}
+	e.refs++
+	k.mu.Unlock()
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		k.mu.Lock()
+		if e.refs--; e.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
+}
+
+// lock serialises writers of one document (in this process).
+func (s *docStore) lock(cr *contentRep, docID string) func() {
+	return s.locks.lock(cacheKey(cr, docID))
+}
+
+func (m *docMeta) clone() *docMeta {
+	cp := *m
+	cp.Components = make(map[string]*compMeta, len(m.Components))
+	for k, v := range m.Components {
+		c := *v
+		cp.Components[k] = &c
+	}
+	return &cp
+}
+
+// clone returns a deep copy so callers may modify it without affecting the
+// cached instance shared with concurrent requests.
+func (d *document) clone() *document {
+	cp := *d
+	cp.meta = d.meta.clone()
+	if d.sidecar != nil {
+		sc := *d.sidecar
+		cp.sidecar = &sc
+	}
+	cp.comps = make([]*component, len(d.comps))
+	for i, c := range d.comps {
+		cc := *c
+		cp.comps[i] = &cc
+	}
+	return &cp
+}
+
+// docProt is the document's security level. A document with components but
+// no sidecar was not written through this interface (or its metadata is
+// missing); the spec gives such documents the highest level.
+func (d *document) docProt() string {
+	if d.sidecar == nil && len(d.comps) > 0 {
+		return "rcud"
+	}
+	return d.meta.DocProt
+}
+
+// errMetaUnavailable maps to 409 "administrative data inaccessible".
+var errMetaUnavailable = errors.New("document administration data (~sapdoc.json) is unreadable")
+
+// load reads a document: one folder listing plus the sidecar. The result is
+// a private copy.
 func (s *docStore) load(ctx context.Context, cr *contentRep, docID string) (*document, error) {
 	key := cacheKey(cr, docID)
 	if d := s.cache.get(key); d != nil {
-		return d, nil
+		return d.clone(), nil
 	}
+	d, err := s.loadFresh(ctx, cr, docID)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.put(key, d.clone())
+	return d, nil
+}
+
+func (s *docStore) loadFresh(ctx context.Context, cr *contentRep, docID string) (*document, error) {
 	folder, err := cr.docFolder(docID)
 	if err != nil {
 		return nil, err
@@ -261,27 +353,39 @@ func (s *docStore) load(ctx context.Context, cr *contentRep, docID string) (*doc
 		}
 	}
 	if d.sidecar != nil {
-		if m, err := s.readSidecar(ctx, cr, d.sidecar); err == nil {
-			d.meta = m
+		m, err := s.readSidecar(ctx, cr, d.sidecar)
+		if err != nil {
+			// Fail closed: without the sidecar the document's protection
+			// level (docProt) and content types are unknown.
+			return nil, fmt.Errorf("%w: %v", errMetaUnavailable, err)
 		}
+		d.meta = m
 	}
+	present := map[string]bool{}
 	for i := range items {
 		it := items[i]
 		if it.Folder != nil || it.Name == sidecarName {
 			continue
 		}
 		id := decodeName(it.Name)
+		present[id] = true
 		c := &component{id: id, item: it, meta: compMeta{Created: it.CreatedDateTime, Modified: it.LastModifiedDateTime}}
 		if m := d.meta.Components[id]; m != nil {
 			c.meta = *m
 		}
 		d.comps = append(d.comps, c)
 	}
+	// The listing is the source of truth for which components exist; drop
+	// sidecar entries left behind by an interrupted delete.
+	for id := range d.meta.Components {
+		if !present[id] {
+			delete(d.meta.Components, id)
+		}
+	}
 	sort.Slice(d.comps, func(i, j int) bool { return d.comps[i].id < d.comps[j].id })
 	if d.meta.Created.IsZero() {
 		d.meta.Created = d.created()
 	}
-	s.cache.put(key, d)
 	return d, nil
 }
 
@@ -301,20 +405,59 @@ func (s *docStore) readSidecar(ctx context.Context, cr *contentRep, it *graph.Dr
 	return &m, nil
 }
 
-func (s *docStore) writeSidecar(ctx context.Context, cr *contentRep, m *docMeta) error {
-	folder, err := cr.docFolder(m.DocID)
+// saveMeta applies fn to the document's metadata and writes the sidecar
+// with optimistic concurrency: an existing sidecar is replaced only if its
+// eTag is unchanged (If-Match), a new one only if none exists yet. On a
+// conflict the document is reloaded and fn re-applied, so concurrent
+// writers on other instances do not lose each other's changes.
+//
+// d is the caller's current view (nil = document not found); fn receives
+// isNew=true when no sidecar exists yet.
+func (s *docStore) saveMeta(ctx context.Context, cr *contentRep, docID string, d *document, fn func(m *docMeta, isNew bool)) error {
+	defer s.invalidate(cr, docID)
+	folder, err := cr.docFolder(docID)
 	if err != nil {
 		return err
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return err
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			d, err = s.loadFresh(ctx, cr, docID)
+			if errors.Is(err, storage.ErrNotFound) {
+				d = nil
+			} else if err != nil {
+				return err
+			}
+		}
+		var m *docMeta
+		isNew := d == nil || d.sidecar == nil
+		if d != nil {
+			m = d.meta.clone()
+			if d.sidecar == nil && len(d.comps) > 0 {
+				m.DocProt = "rcud" // keep the fail-closed level of a legacy document
+			}
+		} else {
+			m = &docMeta{DocID: docID, ContRep: cr.id, Components: map[string]*compMeta{}}
+		}
+		fn(m, isNew)
+		b, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		req := storage.UploadRequest{Folder: folder, Name: sidecarName, Body: bytes.NewReader(b), Size: int64(len(b))}
+		if isNew {
+			req.Conflict = graph.ConflictFail
+		} else {
+			req.Conflict, req.IfMatch = graph.ConflictReplace, d.sidecar.ETag
+		}
+		_, err = s.svc.Upload(ctx, cr.repo, req)
+		if err == nil {
+			return nil
+		}
+		if !graph.IsConflict(err) && graph.StatusOf(err) != http.StatusPreconditionFailed {
+			return err
+		}
 	}
-	_, err = s.svc.Upload(ctx, cr.repo, storage.UploadRequest{
-		Folder: folder, Name: sidecarName, Conflict: graph.ConflictReplace,
-		Body: bytes.NewReader(b), Size: int64(len(b)),
-	})
-	return err
+	return errBusy
 }
 
 // ensureShard creates the shard folder once per process so concurrent

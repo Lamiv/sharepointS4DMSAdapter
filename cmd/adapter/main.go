@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -101,6 +102,13 @@ func run(cfg config.Config, log *slog.Logger) error {
 		case <-time.After(wait):
 		}
 	}
+
+	if err := contentrepo.ReserveFolders(svc, cfg.ContentServer); err != nil {
+		return err
+	}
+	// Paging cursors must verify on every instance sharing these credentials.
+	cursorKey := sha256.Sum256([]byte("sharepointadapter/cursor|" + cfg.Graph.TenantID + "|" + cfg.Graph.ClientID + "|" + cfg.Graph.ClientSecret))
+	svc.SetCursorKey(cursorKey[:])
 
 	authn, err := auth.NewAuthenticator(cfg.Auth, &http.Client{Timeout: 15 * time.Second})
 	if err != nil {

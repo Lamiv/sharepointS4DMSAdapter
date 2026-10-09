@@ -22,6 +22,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +108,9 @@ type csEnv struct {
 	admin  string
 	signer *sapSigner
 	srv    *Server
+	svc    *storage.Service
+	cfg    config.ContentServerConfig
+	seed   graphmock.Seeder
 }
 
 func setupCS(t *testing.T) *csEnv {
@@ -130,6 +134,9 @@ func setupCS(t *testing.T) *csEnv {
 		{ContRep: "Z2", Repository: "DMS", Folder: "ContentServer/Z2", Signature: "none"},
 		{ContRep: "Z3", Repository: "DMS", Folder: "ContentServer/Z3", Signature: "optional"},
 	}}
+	if err := ReserveFolders(svc, cfg); err != nil {
+		t.Fatal(err)
+	}
 	srv, err := New(context.Background(), svc, cfg, time.Minute, "test", log)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +147,8 @@ func setupCS(t *testing.T) *csEnv {
 	srv.RegisterAdmin(mux, "admintoken")
 	as := httptest.NewServer(mux)
 	t.Cleanup(as.Close)
-	return &csEnv{t: t, url: hs.URL + "/ContentServer/ContentServer.dll", admin: as.URL, signer: newSigner(t, "S4H"), srv: srv}
+	return &csEnv{t: t, url: hs.URL + "/ContentServer/ContentServer.dll", admin: as.URL, signer: newSigner(t, "S4H"), srv: srv,
+		svc: svc, cfg: cfg, seed: mh.(graphmock.Seeder)}
 }
 
 // u builds a URL; when signed, accessMode/authId/expiration and secKey are
@@ -474,5 +482,106 @@ func TestMCreate(t *testing.T) {
 	resp, b = e.do("GET", e.u("info", false, "", "contRep", "Z2", "docId", "M1"), nil, nil)
 	if resp.Header.Get("X-numberComps") != "2" {
 		t.Fatalf("M1 comps %s", resp.Header.Get("X-numberComps"))
+	}
+}
+
+// Regression: handlers mutated the cached document shared between requests
+// (a concurrent map write crashes the process) and sidecar writes were
+// unconditional (concurrent writers lost each other's metadata). Two server
+// instances with separate caches and locks model two adapter replicas.
+func TestConcurrentUpdatesAcrossInstances(t *testing.T) {
+	e := setupCS(t)
+	srv2, err := New(context.Background(), e.svc, e.cfg, time.Minute, "test2", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs2 := httptest.NewServer(srv2.Handler())
+	t.Cleanup(hs2.Close)
+	urls := []string{e.url, hs2.URL + "/ContentServer/ContentServer.dll"}
+
+	resp, b := e.do("PUT", e.u("create", false, "", "contRep", "Z2", "docId", "CONC", "compId", "data"), strings.NewReader("base"), map[string]string{"Content-Type": "text/plain"})
+	e.expect(resp, b, 201)
+	// Warm both caches so each instance starts from the same sidecar eTag.
+	for _, u := range urls {
+		r, _ := http.Get(u + "?info&pVersion=0047&contRep=Z2&docId=CONC")
+		r.Body.Close()
+	}
+
+	const n = 12
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u := fmt.Sprintf("%s?update&pVersion=0047&contRep=Z2&docId=CONC&compId=c%02d", urls[i%2], i)
+			req, _ := http.NewRequest("PUT", u, strings.NewReader(fmt.Sprintf("v%d", i)))
+			req.Header.Set("Content-Type", fmt.Sprintf("application/x-test%02d", i))
+			r, err := http.DefaultClient.Do(req)
+			if err != nil {
+				errs <- err
+				return
+			}
+			r.Body.Close()
+			if r.StatusCode != 200 {
+				errs <- fmt.Errorf("update %d: %d %s", i, r.StatusCode, r.Header.Get("X-ErrorDescription"))
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	resp, b = e.do("GET", e.u("info", false, "", "contRep", "Z2", "docId", "CONC"), nil, nil)
+	e.expect(resp, b, 200)
+	types := map[string]string{}
+	for _, part := range parseMultipart(t, resp, b) {
+		types[part.h.Get("X-compId")] = part.h.Get("Content-Type")
+	}
+	if len(types) != n+1 {
+		t.Fatalf("want %d components, got %d: %v", n+1, len(types), types)
+	}
+	for i := range n {
+		if want := fmt.Sprintf("application/x-test%02d; charset=", i); types[fmt.Sprintf("c%02d", i)] != want {
+			t.Errorf("c%02d: metadata lost, Content-Type %q", i, types[fmt.Sprintf("c%02d", i)])
+		}
+	}
+}
+
+// docPath returns the SharePoint path of a component as the adapter stores it.
+func docPath(contRep, docID, comp string) string {
+	enc, _ := encodeName(docID)
+	return "SAP_DMS/ContentServer/" + contRep + "/" + shardOf(docID) + "/" + enc + "/" + comp
+}
+
+// Regression: a document without readable metadata used to be served with
+// docProt "" (unprotected) in optional-signature mode.
+func TestMissingOrCorruptSidecarFailsClosed(t *testing.T) {
+	e := setupCS(t)
+	// Component without sidecar (e.g. copied in by hand): highest protection.
+	e.seed.AddFile("drive1", docPath("Z3", "LEGACY", "data"), []byte("legacy"))
+	resp, b := e.do("GET", e.u("get", false, "", "contRep", "Z3", "docId", "LEGACY"), nil, nil)
+	e.expect(resp, b, 401)
+
+	// Corrupt sidecar: the administration data is inaccessible -> 409.
+	e.seed.AddFile("drive1", docPath("Z2", "BROKEN", "data"), []byte("x"))
+	e.seed.AddFile("drive1", docPath("Z2", "BROKEN", sidecarName), []byte("{not json"))
+	resp, b = e.do("GET", e.u("info", false, "", "contRep", "Z2", "docId", "BROKEN"), nil, nil)
+	e.expect(resp, b, 409)
+}
+
+// The REST API must not see the content server's folder, while the content
+// server itself keeps full access to it.
+func TestContentServerUnaffectedByReservation(t *testing.T) {
+	e := setupCS(t)
+	resp, b := e.do("PUT", e.u("create", false, "", "contRep", "Z2", "docId", "R1", "compId", "data"), strings.NewReader("ok"), nil)
+	e.expect(resp, b, 201)
+	repo, _ := e.svc.Repository("DMS")
+	if _, err := e.svc.GetByPath(context.Background(), repo, "ContentServer/Z2"); err == nil {
+		t.Fatal("reserved folder visible through the shared handle")
+	}
+	if _, err := e.svc.GetByPath(context.Background(), repo.Unrestricted(), "ContentServer/Z2"); err != nil {
+		t.Fatalf("unrestricted handle: %v", err)
 	}
 }

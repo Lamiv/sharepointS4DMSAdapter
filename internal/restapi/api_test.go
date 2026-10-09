@@ -52,6 +52,10 @@ func setup(t *testing.T, mode string) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// As in production: the SAP content server folder is reserved.
+	if err := svc.ReservePath("DMS", "ContentServer/Z1"); err != nil {
+		t.Fatal(err)
+	}
 	authn, err := auth.NewAuthenticator(config.AuthConfig{APIKeys: []config.APIKeyConfig{
 		{Name: "rw", Key: "rw-key", Permissions: []string{"read", "write", "delete"}},
 		{Name: "ro", Key: "ro-key", Permissions: []string{"read"}},

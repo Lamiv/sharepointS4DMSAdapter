@@ -237,6 +237,14 @@ func verifySigner(si signerInfo, content []byte, pub crypto.PublicKey) error {
 // parseCertificateLenient accepts the formats SAP or administrators may
 // send: DER, PEM, base64 DER, or a PKCS#7 certs-only bundle.
 func parseCertificateLenient(body []byte) (*x509.Certificate, error) {
+	// Binary DER first, untouched: trimming could strip a final signature
+	// byte that happens to equal a whitespace character.
+	if c, err := x509.ParseCertificate(body); err == nil {
+		return c, nil
+	}
+	if sig, err := parseSignature(body); err == nil && len(sig.certs) > 0 {
+		return sig.certs[0], nil
+	}
 	body = bytes.TrimSpace(body)
 	if blk, _ := pem.Decode(body); blk != nil {
 		body = blk.Bytes

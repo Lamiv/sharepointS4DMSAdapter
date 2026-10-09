@@ -22,7 +22,7 @@ Both interfaces sit on the same internal components:
 |---|---|---|
 | Graph storage client | `internal/graph` | Drive item calls, upload sessions and downloads. Retries 429/5xx and honours `Retry-After` (one back-off for the whole process). Caps concurrent Graph calls. |
 | Transfer engine | `internal/transfer` | Uploads ≤ 4 MiB go in one PUT; larger ones use a resumable session with 5 MiB chunks. A process-wide memory budget bounds RAM. Bodies of unknown length spool to disk. Downloads stream with `Range` support. |
-| Storage service | `internal/storage` | Maps repositories to SharePoint libraries and folders. Every item must lie inside its repository root. Caches item metadata. |
+| Storage service | `internal/storage` | Maps repositories to SharePoint libraries and folders. Every item must lie inside its repository root. Content server folders are reserved (invisible to REST). Paging cursors are HMAC-bound to repository and folder. Caches item metadata. |
 | Authentication | `internal/auth` | Inbound: API keys (with per-repo read/write/delete) or JWT validated against JWKS. Outbound: Entra ID client credentials with a cached token, refreshed by a single request. |
 | Observability | `internal/observability` | JSON logs, request/correlation IDs (also sent to Graph as `client-request-id`), Prometheus metrics, health/readiness, overload protection. |
 | Document REST API | `internal/restapi` | Fiori-oriented REST API ([OpenAPI](docs/openapi.yaml)). |
@@ -68,7 +68,7 @@ curl -s -H "X-API-Key: loadtest-key" http://localhost:8080/api/v1/repositories/D
 | `graph.metadataCacheTtl` | 60s | Reuses item metadata and the pre-authenticated download URL. A repeat read then costs one SharePoint hop. |
 | `transfer.simpleUploadMaxBytes` | 4 MiB | Uploads above this size use resumable sessions. |
 | `transfer.chunkSizeBytes` | 5 MiB | Rounded down to a multiple of 320 KiB, as Graph requires. |
-| `transfer.memoryBudgetBytes` | 512 MiB | Hard ceiling on transfer buffers. Callers wait instead of the process running out of memory. |
+| `transfer.memoryBudgetBytes` | 512 MiB | Hard ceiling on all transfer buffers: upload (size-classed), chunk and download buffers. Callers wait instead of the process running out of memory. Spooled uploads go to disk (`spoolDir`). |
 | `transfer.downloadMode` | `proxy` | `redirect` returns a 302 to SharePoint, so content bypasses the adapter. |
 | `server.maxInFlight` | 1000 | Requests beyond this get 503 with `Retry-After`. |
 

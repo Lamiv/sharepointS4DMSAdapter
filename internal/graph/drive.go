@@ -329,9 +329,9 @@ func (c *Client) EnsureChildFolder(ctx context.Context, drive, parentPath, name 
 
 // UploadSmallByPath uploads a file of up to a few MiB in one request.
 // Missing parent folders are created by Graph.
-func (c *Client) UploadSmallByPath(ctx context.Context, drive, path string, conflict ConflictBehavior, data []byte) (*DriveItem, error) {
+func (c *Client) UploadSmallByPath(ctx context.Context, drive, path string, conflict ConflictBehavior, data []byte, ifMatch string) (*DriveItem, error) {
 	u := itemByPathURL(drive, path, "content") + "?@microsoft.graph.conflictBehavior=" + string(conflict)
-	return c.putContent(ctx, u, data, "")
+	return c.putContent(ctx, u, data, ifMatch)
 }
 
 // ReplaceSmall replaces the content of an existing item (creates a new version).

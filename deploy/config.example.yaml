@@ -23,9 +23,9 @@ graph:
 transfer:
   simpleUploadMaxBytes: 4194304     # <= 4 MiB: single PUT; above: resumable upload session
   chunkSizeBytes: 5242880           # multiple of 320 KiB
-  memoryBudgetBytes: 536870912      # total transfer buffer memory (512 MiB)
+  memoryBudgetBytes: 536870912      # hard cap on all transfer buffers (512 MiB); excess requests wait
   maxUploadBytes: 2147483648        # 2 GiB
-  spoolDir: /tmp
+  spoolDir: /var/spool/adapter   # disk-backed volume (see docker-compose.yml)
   downloadMode: proxy               # proxy | redirect (302 to short-lived SharePoint URL)
 
 auth:

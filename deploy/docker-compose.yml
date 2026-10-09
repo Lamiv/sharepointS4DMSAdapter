@@ -12,12 +12,13 @@ services:
     env_file: .env
     volumes:
       - ./config.yaml:/etc/adapter/config.yaml:ro
+      - spool:/var/spool/adapter   # disk-backed spool (not RAM)
     ports:
       - "8080:8080"              # Document REST API
       - "8090:8090"              # SAP Content Server HTTP interface (OAC0)
       - "127.0.0.1:9090:9090"    # metrics/health: localhost only
     tmpfs:
-      - /tmp:size=4g              # spool for uploads without Content-Length
+      - /tmp:size=64m
     read_only: true
     security_opt: ["no-new-privileges:true"]
     ulimits:
@@ -30,3 +31,9 @@ services:
     logging:
       driver: json-file
       options: { max-size: "50m", max-file: "5" }
+    # Transfer buffers are capped by transfer.memoryBudgetBytes (512 MiB by
+    # default); 1 GiB leaves room for the Go runtime and connections.
+    mem_limit: 1g
+
+volumes:
+  spool:

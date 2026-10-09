@@ -34,7 +34,7 @@ Documents are stored in SharePoint. The container itself keeps no data.
 
 | Item | Who usually provides it | Notes |
 |---|---|---|
-| Ubuntu server (22.04 or 24.04), 2 vCPU, 2 GB RAM, 20 GB disk | Infrastructure team | A VM is fine. Measured use at 100 concurrent clients: about 0.4 CPU core and about 360 MB RAM. |
+| Ubuntu server (22.04 or 24.04), 2 vCPU, 2 GB RAM, 20 GB disk | Infrastructure team | A VM is fine. The container is limited to 1 GB RAM; measured use at 100 concurrent clients was about 0.4 CPU core and about 360 MB. Uploads without a known size are buffered on disk (Docker volume `spool`), so leave a few GB free. |
 | SSH access with `sudo` | Infrastructure team | |
 | Outbound HTTPS (443) from the server | Network team | To `login.microsoftonline.com`, `graph.microsoft.com` and `*.sharepoint.com`. GitHub and `proxy.golang.org` are needed only while building. |
 | Inbound access from SAP to ports 8080/8090 | Network team; SAP ECS for RISE | S/4HANA application servers, and possibly users' networks (see [section 9](#9-connect-sap-s4hana)). |
@@ -216,6 +216,8 @@ contentServer:
       signature: required       # keep "required" in production
 ```
 
+> The content server's folder (`folder:` above, here `SAP_DMS/ContentServer/Z1`) is reserved: the REST API can't see or change it. If you can, point the content server at its own SharePoint library or root path anyway, and give people at most read access to it (see [docs/content-server.md](docs/content-server.md#8-consistency-concurrency-and-recovery)).
+
 Everything else can keep its default. Things you might want to change:
 
 | Setting | When to change |
@@ -356,6 +358,8 @@ All commands run from `/opt/sharepoint-adapter`:
 | SAP: 401 `secKey verification failed` | The SAP PSE was renewed after activation | Send the certificate again, then activate it. |
 | SAP: 403 `client address not allowed` | The caller is outside `allowedNetworks` | Add its network. |
 | Requests return 503 with `Retry-After` | SharePoint throttling | Lower `graph.maxConcurrency`; spread out bulk loads. |
+| SAP: 409 `administration data ... unreadable` | A document's `~sapdoc.json` is corrupt | Restore the document folder ([docs/content-server.md](docs/content-server.md#8-consistency-concurrency-and-recovery)). |
+| REST API returns 403 `path is reserved` | The path is inside the SAP content server folder | Expected: that folder belongs to SAP. Use another folder. |
 | Port in use on start | Another service uses 8080/8090 | Change the left-hand port in `deploy/docker-compose.yml` (e.g. `"18080:8080"`). |
 
 Still stuck? Collect `docker compose -f deploy/docker-compose.yml logs --tail 200 adapter` and the `X-Request-ID` header of the failing request. Every log line carries the same ID, and the adapter forwards it to Microsoft as `client-request-id`, so Microsoft support can trace the call. Never share `.env`.

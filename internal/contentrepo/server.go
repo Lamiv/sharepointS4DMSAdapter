@@ -49,10 +49,13 @@ func New(ctx context.Context, svc *storage.Service, cfg config.ContentServerConf
 		now:     time.Now,
 	}
 	for _, rc := range cfg.Repositories {
-		repo, err := svc.Repository(rc.Repository)
+		shared, err := svc.Repository(rc.Repository)
 		if err != nil {
 			return nil, fmt.Errorf("contRep %s: %w", rc.ContRep, err)
 		}
+		// The REST API's handle has this folder reserved (see ReserveFolders);
+		// the content server owns it and uses an unrestricted handle.
+		repo := shared.Unrestricted()
 		s.reps[rc.ContRep] = &contentRep{id: rc.ContRep, cfg: rc, repo: repo, folder: rc.Folder, shards: map[string]bool{}}
 		s.order = append(s.order, rc.ContRep)
 	}
@@ -75,6 +78,19 @@ func New(ctx context.Context, svc *storage.Service, cfg config.ContentServerConf
 		log.Warn("could not load content server certificates; will retry", "error", err)
 	}
 	return s, nil
+}
+
+// ReserveFolders hides every configured content server folder (documents,
+// sidecars and certificate records) from the shared repository handles used
+// by the REST API, so REST callers can neither read nor tamper with them.
+// It is applied even when the contentrepo interface is disabled.
+func ReserveFolders(svc *storage.Service, cfg config.ContentServerConfig) error {
+	for _, rc := range cfg.Repositories {
+		if err := svc.ReservePath(rc.Repository, rc.Folder); err != nil {
+			return fmt.Errorf("contRep %s: %w", rc.ContRep, err)
+		}
+	}
+	return nil
 }
 
 // RefreshCertificates periodically reloads certificates so activations done
@@ -150,7 +166,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, msg = http.StatusNotFound, "document or component not found"
 	case errors.Is(err, errDocExists), errors.Is(err, errCompExists):
 		status, msg = http.StatusForbidden, err.Error()
-	case errors.Is(err, errBusy):
+	case errors.Is(err, errBusy), errors.Is(err, errMetaUnavailable):
+		// 409 = "document, component or administration data inaccessible"
 		status, msg = http.StatusConflict, err.Error()
 	case errors.Is(err, storage.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()

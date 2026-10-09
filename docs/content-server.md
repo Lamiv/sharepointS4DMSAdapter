@@ -137,7 +137,34 @@ The SAP documentation leaves these open. The adapter takes the lenient option fo
 4. **Response header names.** The spec names them differently on different pages, so the adapter sends both `X-contentRep`/`X-contRep` and `X-numberComps`/`X-numComps`.
 5. **Front-end access in OAC0.** If SAP GUI/browser clients fetch documents directly, check that they can reach the adapter.
 
-## 8. Troubleshooting
+## 8. Consistency, concurrency and recovery
+
+**Isolation from the REST API.** The content server folder (`<folder>` above, including `~certs/`) is **reserved**. The Document REST API cannot list, read, write or delete anything inside it, and cannot delete a parent folder that contains it. Requests return 404 for reads and 403 for writes. This applies to every configured content repository, even when the `contentrepo` interface is switched off. It is still cleaner to give the content server its own library or root path, and that is recommended for production.
+
+**Concurrent writes.**
+- *Within one adapter instance*, writes to the same document are serialised.
+- *Across instances*, the sidecar is written conditionally on its eTag (`If-Match`). If another instance changed it in the meantime, the adapter reloads it, re-applies its change and retries up to five times, then answers 409.
+- SAP normally doesn't modify one document from two sessions at once (KPro/DMS locks it), so conflicts should be rare.
+
+**Partial failures.** Component files and `~sapdoc.json` are separate SharePoint writes:
+
+| Situation | Behaviour |
+|---|---|
+| `create`: component stored, metadata write fails | The component is deleted again and SAP receives an error, so it can repeat the create. |
+| `create` (multipart) or `mCreate`: any component fails | The whole document is removed, as the spec requires. |
+| `update` / `append`: content stored, metadata write fails | SAP receives an error. The new content is live (the previous version stays in SharePoint version history); content type and timestamps may lag until the next write. |
+| `delete` component: file deleted, metadata write fails | Reported as success. The stale metadata entry is dropped automatically on the next read. |
+| `~sapdoc.json` missing but components present | The document is treated as **fully protected** (`docProt=rcud`): with `signature: optional`, every access needs a valid secKey. |
+| `~sapdoc.json` unreadable or corrupt | The document is **unavailable** (409 "administration data inaccessible") until the file is repaired or restored. Nothing is served with guessed protection. |
+
+**Recovery.** Each SAP document is self-contained in its folder: the components plus `~sapdoc.json`. To recover, restore **the whole document folder together**, from the SharePoint recycle bin (93 days), from library version history, or from your Microsoft 365 backup. Restoring single files is possible, but restore the sidecar together with the components it describes.
+
+**People and other tools in the library.** Treat the content server folder as **owned by the adapter**:
+- Grant end users read access at most, or no access.
+- Files edited or moved by hand are not tracked. The adapter's metadata cache (60 s) and SAP's own references can then disagree with SharePoint.
+- Anyone with write access to the library can change documents directly, and can also edit `~certs/` records. Restrict write access to administrators.
+
+## 9. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -147,5 +174,7 @@ The SAP documentation leaves these open. The adapter takes the lenient option fo
 | 401 `URL expired` | Clock difference between SAP and the VM. Check NTP, or raise `clockSkew`. |
 | 403 `document already exists` | SAP re-sent a create for an existing docId (expected behaviour per spec). |
 | 503 + `Retry-After` | SharePoint throttling. Lower `graph.maxConcurrency` or spread the load. |
+| 409 `administration data ... unreadable` | `~sapdoc.json` of that document is corrupt. Restore the document folder (see section 8). |
+| 409 `concurrent modification; retry` | Repeated write conflicts on one document. SAP can repeat the action. |
 
 Every request is logged as JSON with `iface="contentrepo"` and `route="cs:<command>"`. Prometheus metrics use the same labels.

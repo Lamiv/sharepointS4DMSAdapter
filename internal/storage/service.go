@@ -6,6 +6,9 @@ package storage
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -26,6 +29,9 @@ var (
 	ErrNotFound = errors.New("not found")
 	ErrReadOnly = errors.New("repository is read-only")
 	ErrInvalid  = errors.New("invalid request")
+	// ErrReserved: the path belongs to another interface (the SAP content
+	// server) and is not reachable through this repository handle.
+	ErrReserved = errors.New("path is reserved for the SAP content server")
 )
 
 type Repository struct {
@@ -33,6 +39,45 @@ type Repository struct {
 	DriveID  string
 	RootPath string // drive-relative, no leading/trailing slash; "" = drive root
 	ReadOnly bool
+	// reserved holds repository-relative folders owned by the SAP content
+	// server. They are invisible to, and immutable through, this handle.
+	reserved []string
+}
+
+// Unrestricted returns a handle on the same library without reserved-path
+// restrictions, for the interface that owns those paths.
+func (r *Repository) Unrestricted() *Repository {
+	cp := *r
+	cp.reserved = nil
+	return &cp
+}
+
+// hidden reports whether rel is a reserved folder or lies inside one.
+func (r *Repository) hidden(rel string) bool {
+	for _, p := range r.reserved {
+		if rel == p || strings.HasPrefix(rel, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// containsReserved reports whether deleting folder rel would also delete a
+// reserved folder.
+func (r *Repository) containsReserved(rel string) bool {
+	for _, p := range r.reserved {
+		if rel == "" || strings.HasPrefix(p, rel+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// visible reports whether a drive item is inside the repository and not in
+// a reserved folder.
+func (r *Repository) visible(it *graph.DriveItem) bool {
+	rel, ok := r.Rel(it.Path())
+	return ok && !r.hidden(rel)
 }
 
 // abs converts a repository-relative path to a drive-relative path.
@@ -90,16 +135,19 @@ func ValidName(name string) error {
 }
 
 type Service struct {
-	g     *graph.Client
-	eng   *transfer.Engine
-	repos map[string]*Repository
-	order []string
-	cache *itemCache
-	log   *slog.Logger
+	g         *graph.Client
+	eng       *transfer.Engine
+	repos     map[string]*Repository
+	order     []string
+	cache     *itemCache
+	log       *slog.Logger
+	cursorKey []byte
 }
 
 func NewService(ctx context.Context, g *graph.Client, eng *transfer.Engine, cfgs []config.RepositoryConfig, cacheTTL time.Duration, log *slog.Logger) (*Service, error) {
 	s := &Service{g: g, eng: eng, repos: map[string]*Repository{}, cache: newItemCache(cacheTTL, 20000), log: log}
+	s.cursorKey = make([]byte, 32)
+	_, _ = rand.Read(s.cursorKey)
 	for _, rc := range cfgs {
 		drive := rc.DriveID
 		if drive == "" {
@@ -116,6 +164,28 @@ func NewService(ctx context.Context, g *graph.Client, eng *transfer.Engine, cfgs
 }
 
 func (s *Service) Engine() *transfer.Engine { return s.eng }
+
+// SetCursorKey sets the key that authenticates paging cursors. Instances
+// behind one load balancer must share it; the default is random per process.
+func (s *Service) SetCursorKey(key []byte) { s.cursorKey = key }
+
+// ReservePath hides folder rel of repository id from the shared handle
+// (used by the REST API). Call before serving requests.
+func (s *Service) ReservePath(id, rel string) error {
+	r, err := s.Repository(id)
+	if err != nil {
+		return err
+	}
+	clean, err := CleanPath(rel)
+	if err != nil {
+		return err
+	}
+	if clean == "" {
+		return fmt.Errorf("%w: cannot reserve the repository root", ErrInvalid)
+	}
+	r.reserved = append(r.reserved, clean)
+	return nil
+}
 
 func (s *Service) Repository(id string) (*Repository, error) {
 	if r, ok := s.repos[id]; ok {
@@ -144,7 +214,7 @@ func mapErr(err error) error {
 // item inside repo. Results are cached briefly.
 func (s *Service) Get(ctx context.Context, repo *Repository, id string) (*graph.DriveItem, error) {
 	if it := s.cache.get(repo.DriveID, id); it != nil {
-		if _, ok := repo.Rel(it.Path()); ok {
+		if repo.visible(it) {
 			return it, nil
 		}
 		return nil, ErrNotFound
@@ -153,7 +223,7 @@ func (s *Service) Get(ctx context.Context, repo *Repository, id string) (*graph.
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	if _, ok := repo.Rel(it.Path()); !ok {
+	if !repo.visible(it) {
 		return nil, ErrNotFound
 	}
 	s.cache.put(repo.DriveID, it)
@@ -171,6 +241,9 @@ func (s *Service) GetByPath(ctx context.Context, repo *Repository, rel string) (
 	if err != nil {
 		return nil, err
 	}
+	if clean, _ := CleanPath(rel); repo.hidden(clean) {
+		return nil, ErrNotFound
+	}
 	it, err := s.g.GetItemByPath(ctx, repo.DriveID, p)
 	if err != nil {
 		return nil, mapErr(err)
@@ -184,22 +257,54 @@ type Page struct {
 	Cursor string
 }
 
-func encodeCursor(link string) string {
+// Cursors wrap Graph's @odata.nextLink. They are authenticated with an HMAC
+// bound to the repository, drive and listing scope (folder or query), so a
+// caller cannot substitute a link to another drive, site or folder.
+
+func (s *Service) cursorMAC(repo *Repository, scope, link string) []byte {
+	m := hmac.New(sha256.New, s.cursorKey)
+	for _, part := range []string{repo.ID, repo.DriveID, scope, link} {
+		m.Write([]byte(part))
+		m.Write([]byte{0})
+	}
+	return m.Sum(nil)[:16]
+}
+
+func (s *Service) encodeCursor(repo *Repository, scope, link string) string {
 	if link == "" {
 		return ""
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte(link))
+	return base64.RawURLEncoding.EncodeToString([]byte(link)) + "." + base64.RawURLEncoding.EncodeToString(s.cursorMAC(repo, scope, link))
 }
 
-func decodeCursor(c string) (string, error) {
+func (s *Service) decodeCursor(repo *Repository, scope, c string) (string, error) {
 	if c == "" {
 		return "", nil
 	}
-	b, err := base64.RawURLEncoding.DecodeString(c)
-	if err != nil {
-		return "", fmt.Errorf("%w: bad cursor", ErrInvalid)
+	bad := fmt.Errorf("%w: invalid or expired cursor", ErrInvalid)
+	linkPart, macPart, ok := strings.Cut(c, ".")
+	if !ok {
+		return "", bad
 	}
-	return string(b), nil
+	link, err1 := base64.RawURLEncoding.DecodeString(linkPart)
+	mac, err2 := base64.RawURLEncoding.DecodeString(macPart)
+	if err1 != nil || err2 != nil || !hmac.Equal(mac, s.cursorMAC(repo, scope, string(link))) {
+		return "", bad
+	}
+	return string(link), nil
+}
+
+// visibleItems keeps only items inside the repository and outside reserved
+// folders (defence in depth for listings and search results).
+func visibleItems(repo *Repository, items []graph.DriveItem) []graph.DriveItem {
+	out := items[:0]
+	for _, it := range items {
+		if it.ParentReference != nil && it.ParentReference.Path != "" && !repo.visible(&it) {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 func (s *Service) List(ctx context.Context, repo *Repository, rel string, top int, cursor string) (*Page, error) {
@@ -207,7 +312,11 @@ func (s *Service) List(ctx context.Context, repo *Repository, rel string, top in
 	if err != nil {
 		return nil, err
 	}
-	next, err := decodeCursor(cursor)
+	if clean, _ := CleanPath(rel); repo.hidden(clean) {
+		return nil, ErrNotFound
+	}
+	scope := "list:" + p
+	next, err := s.decodeCursor(repo, scope, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -215,14 +324,15 @@ func (s *Service) List(ctx context.Context, repo *Repository, rel string, top in
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return &Page{Items: pg.Items, Cursor: encodeCursor(pg.NextLink)}, nil
+	return &Page{Items: visibleItems(repo, pg.Items), Cursor: s.encodeCursor(repo, scope, pg.NextLink)}, nil
 }
 
 func (s *Service) Search(ctx context.Context, repo *Repository, query string, top int, cursor string) (*Page, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: empty query", ErrInvalid)
 	}
-	next, err := decodeCursor(cursor)
+	scope := "search:" + query
+	next, err := s.decodeCursor(repo, scope, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -230,18 +340,9 @@ func (s *Service) Search(ctx context.Context, repo *Repository, query string, to
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	// Defence in depth: drop hits outside the repository in case the
-	// service widens a folder-scoped search to the whole drive.
-	items := pg.Items[:0]
-	for _, it := range pg.Items {
-		if it.ParentReference != nil && it.ParentReference.Path != "" {
-			if _, ok := repo.Rel(it.Path()); !ok {
-				continue
-			}
-		}
-		items = append(items, it)
-	}
-	return &Page{Items: items, Cursor: encodeCursor(pg.NextLink)}, nil
+	// Defence in depth: drop hits outside the repository (in case the
+	// service widens a folder-scoped search) and inside reserved folders.
+	return &Page{Items: visibleItems(repo, pg.Items), Cursor: s.encodeCursor(repo, scope, pg.NextLink)}, nil
 }
 
 // UploadRequest creates a new document in folder (repository-relative).
@@ -251,6 +352,9 @@ type UploadRequest struct {
 	Conflict graph.ConflictBehavior
 	Body     io.Reader
 	Size     int64 // -1 if unknown
+	// IfMatch makes the write conditional on the current eTag of an
+	// existing file (412 otherwise). Small bodies only.
+	IfMatch string
 }
 
 func (s *Service) Upload(ctx context.Context, repo *Repository, req UploadRequest) (*graph.DriveItem, error) {
@@ -264,10 +368,13 @@ func (s *Service) Upload(ctx context.Context, repo *Repository, req UploadReques
 	if err != nil {
 		return nil, err
 	}
+	if clean, _ := CleanPath(req.Folder); repo.hidden(strings.TrimLeft(clean+"/"+req.Name, "/")) {
+		return nil, ErrReserved
+	}
 	if req.Conflict == "" {
 		req.Conflict = graph.ConflictRename
 	}
-	t := transfer.Target{Drive: repo.DriveID, Path: strings.TrimLeft(folder+"/"+req.Name, "/"), Conflict: req.Conflict}
+	t := transfer.Target{Drive: repo.DriveID, Path: strings.TrimLeft(folder+"/"+req.Name, "/"), Conflict: req.Conflict, IfMatch: req.IfMatch}
 	it, err := s.eng.Upload(ctx, t, req.Body, req.Size)
 	if err != nil {
 		return nil, mapErr(err)
@@ -300,8 +407,12 @@ func (s *Service) Delete(ctx context.Context, repo *Repository, id, ifMatch stri
 	if repo.ReadOnly {
 		return ErrReadOnly
 	}
-	if _, err := s.Get(ctx, repo, id); err != nil {
+	it, err := s.Get(ctx, repo, id)
+	if err != nil {
 		return err
+	}
+	if rel, _ := repo.Rel(it.Path()); it.Folder != nil && repo.containsReserved(rel) {
+		return ErrReserved
 	}
 	s.cache.drop(repo.DriveID, id)
 	return mapErr(s.g.Delete(ctx, repo.DriveID, id, ifMatch))
@@ -317,6 +428,9 @@ func (s *Service) CreateFolder(ctx context.Context, repo *Repository, rel string
 	}
 	if p == "" {
 		return nil, fmt.Errorf("%w: folder path required", ErrInvalid)
+	}
+	if clean, _ := CleanPath(rel); repo.hidden(clean) {
+		return nil, ErrReserved
 	}
 	it, err := s.g.CreateFolderPath(ctx, repo.DriveID, p)
 	return it, mapErr(err)

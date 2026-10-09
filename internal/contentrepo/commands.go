@@ -2,6 +2,7 @@ package contentrepo
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/storage"
 )
 
@@ -136,7 +138,7 @@ func (s *Server) readCommon(w http.ResponseWriter, r *http.Request, p params, cr
 	if err != nil {
 		return nil, err
 	}
-	return d, s.authAfter(r, p, cr, 'r', d.meta.DocProt)
+	return d, s.authAfter(r, p, cr, 'r', d.docProt())
 }
 
 // ---- info ----
@@ -241,7 +243,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, p params, cr *conte
 	}
 	defer resp.Body.Close()
 	w.WriteHeader(http.StatusOK)
-	if _, err := s.svc.Engine().Copy(w, resp.Body); err != nil && r.Context().Err() == nil {
+	if _, err := s.svc.Engine().Copy(r.Context(), w, resp.Body); err != nil && r.Context().Err() == nil {
 		s.log.Warn("get interrupted", "contRep", cr.id, "docId", d.id, "compId", c.id, "error", err)
 	}
 	return nil
@@ -301,7 +303,7 @@ func (s *Server) docGet(w http.ResponseWriter, r *http.Request, p params, cr *co
 		}
 		pw, err := mw.CreatePart(compPartHeader(c, pv, c.item.Size))
 		if err == nil {
-			_, err = s.svc.Engine().Copy(pw, body)
+			_, err = s.svc.Engine().Copy(r.Context(), pw, body)
 		}
 		body.Close()
 		if err != nil {
@@ -342,6 +344,7 @@ func (s *Server) createPut(w http.ResponseWriter, r *http.Request, p params, cr 
 		return err
 	}
 	docID, compID := p.get("docId"), p.get("compId")
+	defer s.docs.lock(cr, docID)()
 	now := s.now().UTC()
 	// Look up existing document metadata while the component uploads; the
 	// upload itself fails atomically if the component already exists.
@@ -354,34 +357,54 @@ func (s *Server) createPut(w http.ResponseWriter, r *http.Request, p params, cr 
 		d, err := s.docs.load(r.Context(), cr, docID)
 		ch <- loaded{d, err}
 	}()
-	_, err := s.docs.putComponent(r.Context(), cr, docID, compID, r.Body, requestLength(r, p), true)
+	item, err := s.docs.putComponent(r.Context(), cr, docID, compID, r.Body, requestLength(r, p), true)
 	l := <-ch
 	if err != nil {
 		return err
 	}
-	meta := newDocMeta(cr, docID, p.get("docProt"), now)
-	switch {
-	case l.err == nil:
-		meta = l.d.meta
-		meta.Modified = now
-	case !errors.Is(l.err, storage.ErrNotFound):
+	if l.err != nil && !errors.Is(l.err, storage.ErrNotFound) {
+		s.removeAfterFailedCreate(r, cr, docID, item)
 		return l.err
 	}
-	meta.Components[compID] = metaFromRequest(firstNonEmpty(r.Header.Get("Content-Type"), p.get("Content-Type")), now, nil)
-	if cs := p.get("charset"); cs != "" && meta.Components[compID].Charset == "" {
-		meta.Components[compID].Charset = cs
+	cm := metaFromRequest(firstNonEmpty(r.Header.Get("Content-Type"), p.get("Content-Type")), now, nil)
+	if cs := p.get("charset"); cs != "" && cm.Charset == "" {
+		cm.Charset = cs
 	}
-	if v := p.get("version"); v != "" && meta.Components[compID].Version == "" {
-		meta.Components[compID].Version = v
+	if v := p.get("version"); v != "" && cm.Version == "" {
+		cm.Version = v
 	}
-	err = s.docs.writeSidecar(r.Context(), cr, meta)
-	s.docs.invalidate(cr, docID)
+	err = s.docs.saveMeta(r.Context(), cr, docID, l.d, func(m *docMeta, isNew bool) {
+		if isNew {
+			m.Created = now
+			if m.DocProt == "" {
+				m.DocProt = p.get("docProt")
+			}
+		}
+		m.Modified = now
+		c := *cm
+		m.Components[compID] = &c
+	})
 	if err != nil {
+		// Without its metadata the component would block SAP's retry with
+		// 403 "already exists"; remove it so the create can be repeated.
+		s.removeAfterFailedCreate(r, cr, docID, item)
 		return err
 	}
 	w.Header().Set("X-docId", docID)
 	w.WriteHeader(http.StatusCreated)
 	return nil
+}
+
+// removeAfterFailedCreate deletes a component stored by a create whose
+// metadata could not be written (best effort, logged on failure).
+func (s *Server) removeAfterFailedCreate(r *http.Request, cr *contentRep, docID string, item *graph.DriveItem) {
+	if item == nil {
+		return
+	}
+	if err := s.svc.Delete(context.WithoutCancel(r.Context()), cr.repo, item.ID, ""); err != nil {
+		s.log.Error("create rollback failed; component left without metadata", "contRep", cr.id, "docId", docID, "item", item.ID, "error", err)
+	}
+	s.docs.invalidate(cr, docID)
 }
 
 // requestLength returns the body length from the header or, as in some SAP
@@ -440,6 +463,7 @@ func multipartReader(r *http.Request) (*multipart.Reader, error) {
 
 func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr *contentRep) error {
 	docID := p.get("docId")
+	defer s.docs.lock(cr, docID)()
 	if _, err := s.docs.load(r.Context(), cr, docID); err == nil {
 		return errDocExists
 	} else if !errors.Is(err, storage.ErrNotFound) {
@@ -454,7 +478,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 	rollback := func(cause error) error {
 		// "If an error occurs when storing a component, the entire action is canceled."
 		if len(meta.Components) > 0 {
-			if derr := s.docs.deleteDocument(r.Context(), cr, docID); derr != nil {
+			if derr := s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, docID); derr != nil {
 				s.log.Error("create rollback failed", "contRep", cr.id, "docId", docID, "error", derr)
 			}
 		}
@@ -486,10 +510,14 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 			return rollback(err)
 		}
 	}
-	if err := s.docs.writeSidecar(r.Context(), cr, meta); err != nil {
+	if err := s.docs.saveMeta(r.Context(), cr, docID, nil, func(m *docMeta, isNew bool) {
+		*m = *meta.clone()
+	}); err != nil {
+		if len(meta.Components) == 0 {
+			_ = s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, docID)
+		}
 		return rollback(err)
 	}
-	s.docs.invalidate(cr, docID)
 	w.Header().Set("X-docId", docID)
 	w.WriteHeader(http.StatusCreated)
 	return nil
@@ -518,14 +546,19 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 	var results []*result
 	var cur *result
 	var meta *docMeta
+	unlock := func() {}
+	defer func() { unlock() }()
 	now := s.now().UTC()
 	finish := func() {
+		defer func() { unlock(); unlock = func() {} }()
 		if cur == nil || cur.code != 0 {
 			return
 		}
-		if err := s.docs.writeSidecar(r.Context(), cr, meta); err != nil {
+		if err := s.docs.saveMeta(r.Context(), cr, cur.docID, nil, func(m *docMeta, isNew bool) {
+			*m = *meta.clone()
+		}); err != nil {
 			cur.code, cur.desc = http.StatusInternalServerError, err.Error()
-			_ = s.docs.deleteDocument(r.Context(), cr, cur.docID)
+			_ = s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, cur.docID)
 		} else {
 			cur.code = http.StatusCreated
 		}
@@ -547,6 +580,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 			finish()
 			cur = &result{docID: pi.docID}
 			results = append(results, cur)
+			unlock = s.docs.lock(cr, pi.docID)
 			meta = newDocMeta(cr, pi.docID, p.get("docProt"), now)
 			if _, err := s.docs.load(r.Context(), cr, pi.docID); err == nil {
 				cur.code, cur.desc = http.StatusForbidden, "document already exists"
@@ -562,7 +596,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 			if errors.Is(err, errCompExists) {
 				cur.code = http.StatusForbidden
 			}
-			_ = s.docs.deleteDocument(r.Context(), cr, pi.docID)
+			_ = s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, pi.docID)
 			s.docs.invalidate(cr, pi.docID)
 			continue
 		}
@@ -605,16 +639,20 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, p params, cr *co
 	if err := s.authBefore(r, p, cr, 'u'); err != nil {
 		return err
 	}
+	defer s.docs.lock(cr, p.get("docId"))()
 	d, err := s.loadDoc(r, cr, p.get("docId"))
 	if err != nil {
 		return err
 	}
-	if err := s.authAfter(r, p, cr, 'u', d.meta.DocProt); err != nil {
+	if err := s.authAfter(r, p, cr, 'u', d.docProt()); err != nil {
 		return err
 	}
 	defer s.docs.invalidate(cr, d.id)
 	now := s.now().UTC()
-	d.meta.Modified = now
+	// Metadata changes are collected and applied in saveMeta so they can be
+	// re-applied on top of a concurrent writer's sidecar.
+	written := map[string]string{} // compId -> Content-Type sent
+	var removed []string
 
 	switch r.Method {
 	case http.MethodPut:
@@ -626,7 +664,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, p params, cr *co
 		if err := s.writeComponent(r, cr, d, compID, r.Body, requestLength(r, p)); err != nil {
 			return err
 		}
-		d.meta.Components[compID] = metaFromRequest(r.Header.Get("Content-Type"), now, d.meta.Components[compID])
+		written[compID] = r.Header.Get("Content-Type")
 	case http.MethodPost:
 		// The whole document is replaced: components not transferred are deleted.
 		mr, err := multipartReader(r)
@@ -650,20 +688,28 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, p params, cr *co
 				return err
 			}
 			sent[pi.compID] = true
-			d.meta.Components[pi.compID] = metaFromRequest(pi.contentType, now, d.meta.Components[pi.compID])
+			written[pi.compID] = pi.contentType
 		}
 		for _, c := range d.comps {
 			if !sent[c.id] {
 				if err := s.docs.deleteComponent(r.Context(), cr, c); err != nil && !errors.Is(err, storage.ErrNotFound) {
 					return err
 				}
-				delete(d.meta.Components, c.id)
+				removed = append(removed, c.id)
 			}
 		}
 	default:
 		return errStatus(http.StatusMethodNotAllowed, "update requires PUT or POST")
 	}
-	if err := s.docs.writeSidecar(r.Context(), cr, d.meta); err != nil {
+	if err := s.docs.saveMeta(r.Context(), cr, d.id, d, func(m *docMeta, isNew bool) {
+		m.Modified = now
+		for id, ct := range written {
+			m.Components[id] = metaFromRequest(ct, now, m.Components[id])
+		}
+		for _, id := range removed {
+			delete(m.Components, id)
+		}
+	}); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusOK)
@@ -692,11 +738,12 @@ func (s *Server) appendComp(w http.ResponseWriter, r *http.Request, p params, cr
 	if err := s.authBefore(r, p, cr, 'u'); err != nil {
 		return err
 	}
+	defer s.docs.lock(cr, p.get("docId"))()
 	d, err := s.loadDoc(r, cr, p.get("docId"))
 	if err != nil {
 		return err
 	}
-	if err := s.authAfter(r, p, cr, 'u', d.meta.DocProt); err != nil {
+	if err := s.authAfter(r, p, cr, 'u', d.docProt()); err != nil {
 		return err
 	}
 	c := d.comp(p.get("compId"))
@@ -725,11 +772,16 @@ func (s *Server) appendComp(w http.ResponseWriter, r *http.Request, p params, cr
 		return err
 	}
 	now := s.now().UTC()
-	d.meta.Modified = now
-	m := c.meta
-	m.Modified = now
-	d.meta.Components[c.id] = &m
-	if err := s.docs.writeSidecar(r.Context(), cr, d.meta); err != nil {
+	if err := s.docs.saveMeta(r.Context(), cr, d.id, d, func(m *docMeta, isNew bool) {
+		m.Modified = now
+		cm := m.Components[c.id]
+		if cm == nil {
+			cp := c.meta
+			cm = &cp
+			m.Components[c.id] = cm
+		}
+		cm.Modified = now
+	}); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusOK)
@@ -749,11 +801,12 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request, p params, cr 
 	if err := s.authBefore(r, p, cr, 'd'); err != nil {
 		return err
 	}
+	defer s.docs.lock(cr, p.get("docId"))()
 	d, err := s.loadDoc(r, cr, p.get("docId"))
 	if err != nil {
 		return err
 	}
-	if err := s.authAfter(r, p, cr, 'd', d.meta.DocProt); err != nil {
+	if err := s.authAfter(r, p, cr, 'd', d.docProt()); err != nil {
 		return err
 	}
 	defer s.docs.invalidate(cr, d.id)
@@ -765,10 +818,14 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request, p params, cr 
 		if err := s.docs.deleteComponent(r.Context(), cr, c); err != nil {
 			return err
 		}
-		delete(d.meta.Components, id)
-		d.meta.Modified = s.now().UTC()
-		if err := s.docs.writeSidecar(r.Context(), cr, d.meta); err != nil {
-			return err
+		// The component is gone; a stale sidecar entry is harmless (pruned on
+		// the next load), so a failed metadata write does not fail the delete.
+		now := s.now().UTC()
+		if err := s.docs.saveMeta(r.Context(), cr, d.id, d, func(m *docMeta, isNew bool) {
+			delete(m.Components, id)
+			m.Modified = now
+		}); err != nil {
+			s.log.Warn("component deleted but metadata not updated", "contRep", cr.id, "docId", d.id, "compId", id, "error", err)
 		}
 	} else if err := s.docs.deleteDocument(r.Context(), cr, d.id); err != nil {
 		return err
