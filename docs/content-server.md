@@ -129,15 +129,13 @@ Then test the setup:
 | adminContRep (`configGet`, `configSet`, `certGet`, ...) | ❌ 501 | SAP's CSADMIN administration tool reading/writing the content server's own configuration. The adapter is configured in `config.yaml`, and certificates are managed with `adapter certs`. Not used by DMS, GOS, attachments or ArchiveLink at runtime; only a CSADMIN session against this repository would report an error. |
 | getCert | ❌ 501 | 4.6 cache-server command; the spec gives no syntax |
 
-## 7. Points still to verify against the real S/4HANA system
+## 7. Verified against a real S/4HANA system
 
-The SAP documentation leaves these open. The adapter takes the lenient option for each, but please confirm during the first RSCMST / CV01N tests:
+On 2026-10-16, on S/4HANA 2025, repository `signature: required`, pVersion 0047, the SAP test reports **RSCMSTH0, RSCMSTH1, RSCMSTH2 (docProt), RSCMSTH3 (mCreate), RSCMSTA0 and RSCMSTAC finished with 0 errors**. That covers `serverInfo`, `putCert`, signed `create` / `update` / `info` / `get` / `docGet` / `mCreate` in every protection setting, and SAP's API layer with caching. Not yet run: RSCMSTAT (transport between repositories) and RSCMSTHS.
 
-1. **Signed values: decoded or raw.** The spec doesn't say whether SAP signs URL-decoded or raw values. The adapter accepts either.
-2. **toOffset.** The adapter treats it as inclusive.
-3. **Certificate format in putCert.** The adapter accepts DER, PEM and PKCS#7.
-4. **Response header names.** The spec names them differently on different pages, so the adapter sends both `X-contentRep`/`X-contRep` and `X-numberComps`/`X-numComps`.
-5. **Front-end access in OAC0.** If SAP GUI/browser clients fetch documents directly, check that they can reach the adapter.
+Findings from running them (all fixed): SAP expects the Content-Type returned exactly as it sent it; it sends multipart parts without `X-compId` (the empty-document form); `adminContRep` (CSADMIN) commands are not supported and answer 501.
+
+Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter values (the adapter accepts both), and the behaviour of real DMS/GOS flows beyond these reports (CV01N create and CV03N display of an original).
 
 ## 8. Consistency, concurrency and recovery
 
