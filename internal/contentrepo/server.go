@@ -255,6 +255,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		err = s.putCert(w, r, p, cr)
 	case "mCreate":
 		err = s.mCreate(w, r, p, cr)
+	case "adminContRep":
+		// SAP's CSADMIN administration command (adminContRep&configGet /
+		// configSet / certGet ...). It reads and writes the content server's
+		// own configuration, which this adapter keeps in config.yaml, and it is
+		// not used by DMS, GOS, attachments or ArchiveLink at runtime. Third-party
+		// content servers answer 501; SAP then only reports that CSADMIN cannot
+		// administer this server.
+		err = errStatus(http.StatusNotImplemented, "adminContRep %s is not supported: this content server is configured in config.yaml, not through CSADMIN", adminOperation(p))
+		s.log.Info("adminContRep requested (not supported)", "operation", adminOperation(p), "contRep", cr.id)
 	case "attrSearch", "getCert":
 		// attrSearch (print-list attribute index) and getCert (4.6 cache
 		// server) are not implemented; see docs/content-server.md.
@@ -282,6 +291,20 @@ func (s *Server) allowedClient(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// adminOperation names the adminContRep sub-command, which SAP may send as
+// "adminContRep&configGet" (second query token) or as operation=configGet.
+func adminOperation(p params) string {
+	if op := p.get("operation"); op != "" {
+		return op
+	}
+	for _, k := range []string{"configget", "configset", "certget", "statget", "contrepstat", "export", "docidlist", "serverinfo"} {
+		if _, ok := p.values[k]; ok {
+			return k
+		}
+	}
+	return "(unknown operation)"
 }
 
 var secKeyRe = regexp.MustCompile(`(?i)(seckey=)[^&]*`)

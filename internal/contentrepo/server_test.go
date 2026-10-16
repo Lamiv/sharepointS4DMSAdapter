@@ -668,3 +668,20 @@ func TestRedactSecKey(t *testing.T) {
 		t.Fatalf("redaction: %q", got)
 	}
 }
+
+// CSADMIN's adminContRep commands are not supported; the answer must be a
+// clear 501 (what third-party content servers return), not a generic error.
+func TestAdminContRepIsNotImplemented(t *testing.T) {
+	e := setupCS(t)
+	for _, c := range []struct{ method, q, op string }{
+		{"GET", "adminContRep&configGet&pVersion=0046&contRep=Z2", "configget"},
+		{"POST", "adminContRep&pVersion=0046&operation=configSet&contRep=Z2", "configSet"},
+		{"GET", "adminContRep&pVersion=0047&contRep=Z2&certGet", "certget"},
+	} {
+		resp, body := e.do(c.method, e.url+"?"+c.q, strings.NewReader("ContRepRoot=/x"), nil)
+		e.expect(resp, body, 501)
+		if d := resp.Header.Get("X-ErrorDescription"); !strings.Contains(d, "adminContRep "+c.op) || !strings.Contains(d, "config.yaml") {
+			t.Errorf("%s: description %q", c.q, d)
+		}
+	}
+}

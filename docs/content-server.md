@@ -125,6 +125,7 @@ Then test the setup:
 | search | ✅ | `N;offset;offset;` forward (streamed) or backward (range ≤ 64 MiB) |
 | putCert | ✅ | DER, PEM or PKCS#7; 406 if unreadable |
 | attrSearch | ❌ 501 | print-list attribute index search; not needed for DMS/GOS |
+| adminContRep (`configGet`, `configSet`, `certGet`, ...) | ❌ 501 | SAP's CSADMIN administration tool reading/writing the content server's own configuration. The adapter is configured in `config.yaml`, and certificates are managed with `adapter certs`. Not used by DMS, GOS, attachments or ArchiveLink at runtime; only a CSADMIN session against this repository would report an error. |
 | getCert | ❌ 501 | 4.6 cache-server command; the spec gives no syntax |
 
 ## 7. Points still to verify against the real S/4HANA system
