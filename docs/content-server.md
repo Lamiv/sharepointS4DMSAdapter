@@ -174,6 +174,8 @@ The SAP documentation leaves these open. The adapter takes the lenient option fo
 | 401 `URL expired` | Clock difference between SAP and the VM. Check NTP, or raise `clockSkew`. |
 | 403 `document already exists` | SAP re-sent a create for an existing docId (expected behaviour per spec). |
 | 503 + `Retry-After` | SharePoint throttling. Lower `graph.maxConcurrency` or spread the load. |
+| CCMS shows `400 Bad Request ... part without X-compId` (older versions) | SAP sent a multipart part without the `X-compId` header (for example the marker for an empty document). | Fixed: the adapter now accepts the spec's zero-component form and an empty marker part, and falls back to `Content-Disposition` `name`, then to the default names `data`, `data1`, ... (logged as a warning with the part's headers). |
+| You need to see exactly what SAP sends | | Set `LOG_LEVEL=debug` in `deploy/.env`, run `up -d --force-recreate`, repeat the SAP action, then `docker compose -f deploy/docker-compose.yml logs adapter \| grep -E 'content server request\|multipart part'`. The signature (`secKey`) is redacted; request bodies are never logged. Set the level back to `info` afterwards. |
 | 409 `administration data ... unreadable` | `~sapdoc.json` of that document is corrupt. Restore the document folder (see section 8). |
 | 409 `concurrent modification; retry` | Repeated write conflicts on one document. SAP can repeat the action. |
 

@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -207,6 +208,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errStatus(http.StatusForbidden, "client address not allowed"))
 		return
 	}
+	if s.log.Enabled(r.Context(), slog.LevelDebug) {
+		// LOG_LEVEL=debug shows what SAP actually sends (secKey redacted).
+		s.log.Debug("content server request", "method", r.Method, "command", p.cmd, "query", redactSecKey(r.URL.RawQuery),
+			"content_type", r.Header.Get("Content-Type"), "content_length", r.ContentLength, "user_agent", r.UserAgent(),
+			"request_id", observability.RequestID(r.Context()))
+	}
 	pv := p.get("pVersion")
 	if pv == "" {
 		pv = defaultPVersion
@@ -276,6 +283,10 @@ func (s *Server) allowedClient(r *http.Request) bool {
 	}
 	return false
 }
+
+var secKeyRe = regexp.MustCompile(`(?i)(seckey=)[^&]*`)
+
+func redactSecKey(q string) string { return secKeyRe.ReplaceAllString(q, "${1}<redacted>") }
 
 func requireMethod(r *http.Request, methods ...string) error {
 	for _, m := range methods {

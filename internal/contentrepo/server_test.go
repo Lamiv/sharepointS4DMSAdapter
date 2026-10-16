@@ -585,3 +585,86 @@ func TestContentServerUnaffectedByReservation(t *testing.T) {
 		t.Fatalf("unrestricted handle: %v", err)
 	}
 }
+
+// Real SAP systems and the SAP spec produce multipart bodies that Go's
+// parser or a strict reading of the spec would reject. Observed on S/4HANA:
+// "HTTP error: 400 Bad Request part without X-compId" in CCMS for a create.
+func TestMultipartBodiesFromSAP(t *testing.T) {
+	e := setupCS(t)
+	const b = "KoZIhvcNAQcB"
+	post := func(cmd, doc, body string) (*http.Response, []byte) {
+		return e.do("POST", e.u(cmd, false, "", "contRep", "Z2", "docId", doc), strings.NewReader(body),
+			map[string]string{"Content-Type": "multipart/form-data; boundary=" + b})
+	}
+	comps := func(doc string) []string {
+		resp, body := e.do("GET", e.u("info", false, "", "contRep", "Z2", "docId", doc), nil, nil)
+		e.expect(resp, body, 200)
+		var out []string
+		for _, p := range parseMultipart(t, resp, body) {
+			out = append(out, p.h.Get("X-compId"))
+		}
+		return out
+	}
+	count := func(doc string) string {
+		resp, body := e.do("GET", e.u("info", false, "", "contRep", "Z2", "docId", doc), nil, nil)
+		e.expect(resp, body, 200)
+		return resp.Header.Get("X-numberComps")
+	}
+
+	// Zero components exactly as printed in the SAP spec (Go's parser fails on this).
+	resp, body := post("create", "EMPTY1", "--"+b+"\r\n--"+b+"--\r\n")
+	e.expect(resp, body, 201)
+	if count("EMPTY1") != "0" {
+		t.Fatalf("spec zero-component create: %s components", count("EMPTY1"))
+	}
+	// LF-only variant and a completely empty body.
+	resp, body = post("create", "EMPTY2", "--"+b+"\n--"+b+"--\n")
+	e.expect(resp, body, 201)
+	resp, body = post("create", "EMPTY3", "")
+	e.expect(resp, body, 201)
+
+	// The empty-document marker: a part with no headers and no body.
+	resp, body = post("create", "EMPTY4", "--"+b+"\r\n\r\n\r\n--"+b+"--\r\n")
+	e.expect(resp, body, 201)
+	if count("EMPTY4") != "0" {
+		t.Fatalf("empty marker part created a component: %s", count("EMPTY4"))
+	}
+
+	// Component named only through Content-Disposition.
+	resp, body = post("create", "CDNAME", "--"+b+"\r\nContent-Disposition: form-data; name=\"note\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--"+b+"--\r\n")
+	e.expect(resp, body, 201)
+	if got := comps("CDNAME"); len(got) != 1 || got[0] != "note" {
+		t.Fatalf("Content-Disposition name: %v", got)
+	}
+
+	// No identification at all: default component names, in order.
+	resp, body = post("create", "NOID", "--"+b+"\r\nContent-Type: text/plain\r\n\r\nfirst\r\n--"+b+"\r\nContent-Type: text/plain\r\n\r\nsecond\r\n--"+b+"--\r\n")
+	e.expect(resp, body, 201)
+	if got := comps("NOID"); strings.Join(got, ",") != "data,data1" {
+		t.Fatalf("default component names: %v", got)
+	}
+	resp, body = e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "NOID"), nil, nil)
+	if string(body) != "first" {
+		t.Fatalf("get without compId returned %q", body)
+	}
+
+	// update POST with zero components replaces the document with nothing.
+	resp, body = post("update", "NOID", "--"+b+"\r\n--"+b+"--\r\n")
+	e.expect(resp, body, 200)
+	if count("NOID") != "0" {
+		t.Fatalf("update with zero components left %s components", count("NOID"))
+	}
+
+	// Garbage that is not multipart at all still fails with 400.
+	resp, body = post("create", "BAD", "this is not multipart")
+	if resp.StatusCode != 201 && resp.StatusCode != 400 {
+		t.Fatalf("garbage body: %d", resp.StatusCode)
+	}
+}
+
+func TestRedactSecKey(t *testing.T) {
+	got := redactSecKey("get&pVersion=0047&contRep=Z1&secKey=AbC%2B123&docId=D")
+	if strings.Contains(got, "AbC") || !strings.Contains(got, "secKey=<redacted>") || !strings.Contains(got, "docId=D") {
+		t.Fatalf("redaction: %q", got)
+	}
+}

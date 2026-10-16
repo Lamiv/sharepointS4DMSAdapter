@@ -395,6 +395,7 @@ All commands run from `/opt/sharepoint-adapter`:
 | SAP: 401 `secKey verification failed` | The SAP PSE was renewed after activation | Send the certificate again, then activate it. |
 | SAP: 403 `client address not allowed` | The caller is outside `allowedNetworks` | Add its network. |
 | Requests return 503 with `Retry-After` | SharePoint throttling | Lower `graph.maxConcurrency`; spread out bulk loads. |
+| SAP/CCMS: `400 Bad Request ... part without X-compId` | An older adapter version rejected SAP's empty-document or unnamed multipart parts | `git pull` and rebuild. To see what SAP sends, set `LOG_LEVEL=debug` (see [docs/content-server.md](docs/content-server.md)). |
 | SAP: 409 `administration data ... unreadable` | A document's `~sapdoc.json` is corrupt | Restore the document folder ([docs/content-server.md](docs/content-server.md#8-consistency-concurrency-and-recovery)). |
 | REST API returns 403 `path is reserved` | The path is inside the SAP content server folder | Expected: that folder belongs to SAP. Use another folder. |
 | `port is already allocated` on start | Another service uses 8080, 8090 or 9090. Ubuntu's **Cockpit** uses 9090. | Find it with `sudo ss -ltnp \| grep -E ':(8080\|8090\|9090)'`. Then set `ADMIN_PORT=19090` (or `REST_PORT` / `CS_PORT`) in `deploy/.env` and run `up -d` again. Use the new port wherever this guide says `localhost:9090`. |

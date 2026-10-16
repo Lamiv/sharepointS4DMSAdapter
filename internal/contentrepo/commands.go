@@ -1,6 +1,7 @@
 package contentrepo
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -11,11 +12,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"sharepointadapter/internal/graph"
+	"sharepointadapter/internal/observability"
 	"sharepointadapter/internal/storage"
 )
 
@@ -433,6 +436,7 @@ func firstNonEmpty(v ...string) string {
 type partInfo struct {
 	docID, compID, contentType string
 	size                       int64
+	body                       io.Reader
 }
 
 func readPartInfo(part *multipart.Part) partInfo {
@@ -453,12 +457,109 @@ func readPartInfo(part *multipart.Part) partInfo {
 	return pi
 }
 
-func multipartReader(r *http.Request) (*multipart.Reader, error) {
+// partReader iterates over the component parts of a multipart request.
+//
+// It is deliberately lenient where real SAP systems and the SAP spec differ:
+//   - the spec's zero-component body ("--B" directly followed by "--B--")
+//     is accepted (Go's parser rejects it);
+//   - a part with no headers and no body is the empty-document marker and is
+//     skipped;
+//   - a part without X-compId falls back to Content-Disposition name, then to
+//     the default component names "data", "data1", "data2", ... (a warning
+//     with the part's headers is logged so the real format can be checked).
+type partReader struct {
+	s     *Server
+	r     *http.Request
+	cmd   string
+	mr    *multipart.Reader
+	empty bool
+	idx   int
+}
+
+func (s *Server) newPartReader(r *http.Request, cmd string) (*partReader, error) {
 	mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.HasPrefix(mt, "multipart/") || params["boundary"] == "" {
+	boundary := params["boundary"]
+	if err != nil || !strings.HasPrefix(mt, "multipart/") || boundary == "" {
 		return nil, errStatus(http.StatusBadRequest, "multipart/form-data body required")
 	}
-	return multipart.NewReader(r.Body, params["boundary"]), nil
+	br := bufio.NewReaderSize(r.Body, 64<<10)
+	head, _ := br.Peek(2*len(boundary) + 16)
+	return &partReader{s: s, r: r, cmd: cmd, mr: multipart.NewReader(br, boundary), empty: isEmptyMultipart(string(head), boundary)}, nil
+}
+
+// isEmptyMultipart reports whether head starts a multipart body without any
+// part: nothing at all, or the opening boundary directly followed by the
+// closing boundary.
+func isEmptyMultipart(head, boundary string) bool {
+	h := strings.TrimLeft(head, "\r\n ")
+	if h == "" {
+		return true
+	}
+	delim := "--" + boundary
+	if !strings.HasPrefix(h, delim) {
+		return false
+	}
+	rest := strings.TrimLeft(h[len(delim):], " \t")
+	rest = strings.TrimPrefix(strings.TrimPrefix(rest, "\r"), "\n")
+	return strings.HasPrefix(rest, delim+"--")
+}
+
+// next returns the next component part, or io.EOF when there are no more.
+func (pr *partReader) next() (partInfo, error) {
+	if pr.empty {
+		return partInfo{}, io.EOF
+	}
+	for {
+		part, err := pr.mr.NextRawPart()
+		if err == io.EOF {
+			return partInfo{}, io.EOF
+		}
+		if err != nil {
+			return partInfo{}, errStatus(http.StatusBadRequest, "invalid multipart body: %v", err)
+		}
+		pi := readPartInfo(part)
+		pi.body = part
+		idx := pr.idx
+		pr.idx++
+		if pi.compID != "" {
+			pr.s.log.Debug("multipart part", "command", pr.cmd, "index", idx, "headers", headerSummary(part.Header))
+			return pi, nil
+		}
+		// No component ID. A part without headers and body is the marker for
+		// an empty document, not a component.
+		buf := bufio.NewReader(part)
+		if _, perr := buf.Peek(1); perr == io.EOF && len(part.Header) == 0 {
+			pr.s.log.Info("empty multipart part ignored (empty document)", "command", pr.cmd, "index", idx)
+			continue
+		}
+		pi.body = buf
+		if idx == 0 {
+			pi.compID = "data"
+		} else {
+			pi.compID = "data" + strconv.Itoa(idx)
+		}
+		pr.s.log.Warn("multipart part without X-compId; using default component name",
+			"command", pr.cmd, "index", idx, "compId", pi.compID, "headers", headerSummary(part.Header),
+			"request_id", observability.RequestID(pr.r.Context()))
+		return pi, nil
+	}
+}
+
+// headerSummary renders part headers for logs (names and short values).
+func headerSummary(h textproto.MIMEHeader) string {
+	if len(h) == 0 {
+		return "(none)"
+	}
+	var parts []string
+	for k, v := range h {
+		val := strings.Join(v, ",")
+		if len(val) > 80 {
+			val = val[:80] + "..."
+		}
+		parts = append(parts, k+": "+val)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " | ")
 }
 
 func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr *contentRep) error {
@@ -469,7 +570,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return err
 	}
-	mr, err := multipartReader(r)
+	pr, err := s.newPartReader(r, "create")
 	if err != nil {
 		return err
 	}
@@ -486,21 +587,17 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 		return cause
 	}
 	for {
-		part, err := mr.NextRawPart()
+		pi, err := pr.next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return rollback(errStatus(http.StatusBadRequest, "invalid multipart body: %v", err))
-		}
-		pi := readPartInfo(part)
-		if pi.compID == "" {
-			return rollback(errStatus(http.StatusBadRequest, "part without X-compId"))
+			return rollback(err)
 		}
 		if meta.Components[pi.compID] != nil {
 			return rollback(errStatus(http.StatusBadRequest, "duplicate component %s", pi.compID))
 		}
-		if _, err := s.docs.putComponent(r.Context(), cr, docID, pi.compID, part, pi.size, true); err != nil {
+		if _, err := s.docs.putComponent(r.Context(), cr, docID, pi.compID, pi.body, pi.size, true); err != nil {
 			return rollback(err)
 		}
 		meta.Components[pi.compID] = metaFromRequest(pi.contentType, now, nil)
@@ -535,7 +632,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 	if err := s.authAfter(r, p, cr, 'c', p.get("docProt")); err != nil {
 		return err
 	}
-	mr, err := multipartReader(r)
+	pr, err := s.newPartReader(r, "mCreate")
 	if err != nil {
 		return err
 	}
@@ -565,16 +662,15 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 		s.docs.invalidate(cr, cur.docID)
 	}
 	for {
-		part, err := mr.NextRawPart()
+		pi, err := pr.next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return errStatus(http.StatusBadRequest, "invalid multipart body: %v", err)
+			return err
 		}
-		pi := readPartInfo(part)
-		if pi.docID == "" || pi.compID == "" {
-			return errStatus(http.StatusBadRequest, "mCreate parts need X-docId and X-compId")
+		if pi.docID == "" {
+			return errStatus(http.StatusBadRequest, "mCreate parts need X-docId")
 		}
 		if cur == nil || cur.docID != pi.docID {
 			finish()
@@ -591,7 +687,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 		if cur.code != 0 {
 			continue // skip remaining parts of a failed/existing document
 		}
-		if _, err := s.docs.putComponent(r.Context(), cr, pi.docID, pi.compID, part, pi.size, true); err != nil {
+		if _, err := s.docs.putComponent(r.Context(), cr, pi.docID, pi.compID, pi.body, pi.size, true); err != nil {
 			cur.code, cur.desc = http.StatusInternalServerError, err.Error()
 			if errors.Is(err, errCompExists) {
 				cur.code = http.StatusForbidden
@@ -667,24 +763,20 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, p params, cr *co
 		written[compID] = r.Header.Get("Content-Type")
 	case http.MethodPost:
 		// The whole document is replaced: components not transferred are deleted.
-		mr, err := multipartReader(r)
+		pr, err := s.newPartReader(r, "update")
 		if err != nil {
 			return err
 		}
 		sent := map[string]bool{}
 		for {
-			part, err := mr.NextRawPart()
+			pi, err := pr.next()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				return errStatus(http.StatusBadRequest, "invalid multipart body: %v", err)
+				return err
 			}
-			pi := readPartInfo(part)
-			if pi.compID == "" {
-				return errStatus(http.StatusBadRequest, "part without X-compId")
-			}
-			if err := s.writeComponent(r, cr, d, pi.compID, part, pi.size); err != nil {
+			if err := s.writeComponent(r, cr, d, pi.compID, pi.body, pi.size); err != nil {
 				return err
 			}
 			sent[pi.compID] = true
