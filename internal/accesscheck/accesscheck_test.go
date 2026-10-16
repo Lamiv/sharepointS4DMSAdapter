@@ -47,7 +47,7 @@ func TestAllChecksPass(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, out.String())
 	}
 	for _, want := range []string{"[PASS] Application permission in the token", "[PASS] [DMS] Write: upload a small file",
-		"[PASS] [DMS] Read: download and compare", "[PASS] [DMS] Delete the test file", "passed 10, failed 0, skipped 0"} {
+		"[PASS] [DMS] Read: download and compare", "[PASS] [DMS] Delete the test file", "passed 10, failed 0, skipped 0", "library URL: https://contoso.sharepoint.com/sites/sap/drive1 | root folder: SAP_DMS"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("report lacks %q:\n%s", want, out.String())
 		}

@@ -504,6 +504,23 @@ func (c *Client) OpenThumbnail(ctx context.Context, drive, id, size string) (*ht
 	return c.do(ctx, request{op: "thumbnail.get", method: http.MethodGet, url: itemURL(drive, id, "thumbnails/0/"+url.PathEscape(size)+"/content")})
 }
 
+// DriveInfo returns a drive's display name and browser URL, to show where
+// documents are really stored.
+func (c *Client) DriveInfo(ctx context.Context, drive string) (name, webURL string, err error) {
+	resp, err := c.do(ctx, request{op: "drive.info", method: http.MethodGet, url: "/drives/" + url.PathEscape(drive) + "?$select=name,webUrl"})
+	if err != nil {
+		return "", "", err
+	}
+	var d struct {
+		Name   string `json:"name"`
+		WebURL string `json:"webUrl"`
+	}
+	if err := decode(resp, &d); err != nil {
+		return "", "", err
+	}
+	return d.Name, d.WebURL, nil
+}
+
 // Ping verifies credentials and drive reachability.
 func (c *Client) Ping(ctx context.Context, drive string) error {
 	resp, err := c.do(ctx, request{op: "drive.ping", method: http.MethodGet, url: "/drives/" + url.PathEscape(drive) + "?$select=id", noRetry: true})

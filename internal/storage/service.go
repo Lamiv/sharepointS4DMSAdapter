@@ -39,6 +39,8 @@ type Repository struct {
 	DriveID  string
 	RootPath string // drive-relative, no leading/trailing slash; "" = drive root
 	ReadOnly bool
+	// WebURL is the browser URL of the library, for logs and diagnostics.
+	WebURL string
 	// reserved holds repository-relative folders owned by the SAP content
 	// server. They are invisible to, and immutable through, this handle.
 	reserved []string
@@ -157,7 +159,12 @@ func NewService(ctx context.Context, g *graph.Client, eng *transfer.Engine, cfgs
 			}
 			log.Info("resolved repository drive", "repository", rc.ID, "drive_id", drive)
 		}
-		s.repos[rc.ID] = &Repository{ID: rc.ID, DriveID: drive, RootPath: rc.RootPath, ReadOnly: rc.ReadOnly}
+		repo := &Repository{ID: rc.ID, DriveID: drive, RootPath: rc.RootPath, ReadOnly: rc.ReadOnly}
+		if _, web, err := g.DriveInfo(ctx, drive); err == nil {
+			repo.WebURL = web
+		}
+		log.Info("repository ready: documents are stored here", "repository", rc.ID, "library_url", repo.WebURL, "root_path", rc.RootPath)
+		s.repos[rc.ID] = repo
 		s.order = append(s.order, rc.ID)
 	}
 	return s, nil

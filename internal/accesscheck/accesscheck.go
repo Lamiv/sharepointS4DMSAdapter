@@ -206,7 +206,11 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 		}
 		return
 	}
-	rep.add(p+"Find the library", resReq, "resolve "+loc, pass, "drive "+short(drive), "")
+	where := ""
+	if _, web, err := gc.DriveInfo(ctx, drive); err == nil && web != "" {
+		where = " | library URL: " + web + " | root folder: " + repo.RootPath
+	}
+	rep.add(p+"Find the library", resReq, "resolve "+loc, pass, "drive "+short(drive)+where, "")
 
 	if repo.ReadOnly {
 		for _, n := range []string{"Write: upload a small file", "Read: download and compare", "Resumable upload session (files over 4 MiB)", "Version history", "Delete the test file", "Clean up earlier test files"} {

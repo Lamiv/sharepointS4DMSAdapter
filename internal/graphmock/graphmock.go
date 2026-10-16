@@ -209,7 +209,7 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request, p string) {
 		return
 	}
 	if rest == "" {
-		writeJSON(w, 200, map[string]any{"id": drive, "driveType": "documentLibrary"})
+		writeJSON(w, 200, map[string]any{"id": drive, "name": "Documents", "driveType": "documentLibrary", "webUrl": "https://contoso.sharepoint.com/sites/sap/" + drive})
 		return
 	}
 
