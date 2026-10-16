@@ -115,7 +115,11 @@ type csEnv struct {
 
 func setupCS(t *testing.T) *csEnv {
 	t.Helper()
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return setupCSWithLogger(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func setupCSWithLogger(t *testing.T, log *slog.Logger) *csEnv {
+	t.Helper()
 	mh, err := graphmock.New(graphmock.Options{DataDir: t.TempDir(), Drives: []string{"drive1"}})
 	if err != nil {
 		t.Fatal(err)
@@ -683,5 +687,21 @@ func TestAdminContRepIsNotImplemented(t *testing.T) {
 		if d := resp.Header.Get("X-ErrorDescription"); !strings.Contains(d, "adminContRep "+c.op) || !strings.Contains(d, "config.yaml") {
 			t.Errorf("%s: description %q", c.q, d)
 		}
+	}
+}
+
+func TestRefusedRequestsAreLoggedWithReason(t *testing.T) {
+	var buf bytes.Buffer
+	e := setupCSWithLogger(t, slog.New(slog.NewTextHandler(&buf, nil)))
+	resp, body := e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "NOPE"), nil, nil)
+	e.expect(resp, body, 404)
+	out := buf.String()
+	for _, want := range []string{"content server request refused", "command=get", "status=404", "contRep=Z2", "docId=NOPE", "reason="} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "secKey") {
+		t.Error("log must not contain the secKey")
 	}
 }

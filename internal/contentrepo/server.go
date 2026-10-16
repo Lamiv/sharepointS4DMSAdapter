@@ -182,9 +182,18 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &ge):
 		status, msg = http.StatusInternalServerError, "SharePoint request failed"
 	}
+	// Every refused request is logged with its reason, so a test run (for
+	// example report RSCMSTH2) can be diagnosed from `docker compose logs`.
+	q := parseParams(r.URL.RawQuery)
+	lvl := slog.LevelWarn
 	if status >= 500 {
-		s.log.Error("content server request failed", "request_id", observability.RequestID(r.Context()), "error", err)
+		lvl = slog.LevelError
 	}
+	s.log.LogAttrs(r.Context(), lvl, "content server request refused",
+		slog.String("request_id", observability.RequestID(r.Context())),
+		slog.String("command", q.cmd), slog.Int("status", status), slog.String("reason", msg),
+		slog.String("contRep", q.get("contRep")), slog.String("docId", q.get("docId")), slog.String("compId", q.get("compId")),
+		slog.String("method", r.Method), slog.String("error", err.Error()))
 	h := w.Header()
 	h.Set("X-ErrorDescription", msg)
 	h.Set("Content-Type", "text/plain; charset=utf-8")
