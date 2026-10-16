@@ -60,12 +60,23 @@ func parseContentType(v string) (mediaType, charset, version string) {
 	return
 }
 
-func (c *component) contentTypeHeader(alwaysCharset bool) string {
-	ct := c.contentType()
-	if c.meta.ContentType == "" {
-		ct, _, _ = parseContentType(ct)
+// contentTypeHeader returns the component's Content-Type exactly as SAP
+// stored it, or "" when SAP sent none (the header is then omitted). Only a
+// file that has no metadata (not written through this interface) falls back
+// to the type SharePoint reports.
+func (c *component) contentTypeHeader() string {
+	if !c.hasMeta {
+		return c.contentType()
 	}
-	if c.meta.Charset != "" || alwaysCharset {
+	if c.meta.Raw != "" {
+		return c.meta.Raw
+	}
+	if c.meta.ContentType == "" {
+		return ""
+	}
+	// Metadata written by earlier versions: rebuild from the parsed parts.
+	ct := c.meta.ContentType
+	if c.meta.Charset != "" {
 		ct += "; charset=" + c.meta.Charset
 	}
 	if c.meta.Version != "" {
@@ -81,6 +92,7 @@ func metaFromRequest(contentType string, now time.Time, prev *compMeta) *compMet
 		m.Modified = now
 	}
 	if contentType != "" {
+		m.Raw = strings.TrimSpace(contentType)
 		m.ContentType, m.Charset, m.Version = parseContentType(contentType)
 	}
 	return m
@@ -105,7 +117,9 @@ func setDocHeaders(h http.Header, cr *contentRep, d *document, pv string) {
 
 func compPartHeader(c *component, pv string, bodyLen int64) textproto.MIMEHeader {
 	h := textproto.MIMEHeader{}
-	h.Set("Content-Type", c.contentTypeHeader(true))
+	if ct := c.contentTypeHeader(); ct != "" {
+		h.Set("Content-Type", ct)
+	}
 	h.Set("Content-Length", strconv.FormatInt(bodyLen, 10))
 	h.Set("X-compId", c.id)
 	h.Set("X-Content-Length", strconv.FormatInt(c.item.Size, 10))
@@ -166,7 +180,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request, p params, cr *cont
 		var b strings.Builder
 		fmt.Fprintf(&b, "<html><body><h3>Document %s (%s)</h3><table border=1><tr><th>compId</th><th>Content-Type</th><th>Size</th><th>Created</th><th>Modified</th></tr>", html.EscapeString(d.id), html.EscapeString(cr.id))
 		for _, c := range comps {
-			fmt.Fprintf(&b, "<tr><td>%s</td><td>%s</td><td>%d</td><td>%s %s</td><td>%s %s</td></tr>", html.EscapeString(c.id), html.EscapeString(c.contentTypeHeader(false)), c.item.Size,
+			fmt.Fprintf(&b, "<tr><td>%s</td><td>%s</td><td>%d</td><td>%s %s</td><td>%s %s</td></tr>", html.EscapeString(c.id), html.EscapeString(c.contentTypeHeader()), c.item.Size,
 				ymd(c.meta.Created), hms(c.meta.Created), ymd(c.meta.Modified), hms(c.meta.Modified))
 		}
 		b.WriteString("</table></body></html>")
@@ -221,7 +235,11 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, p params, cr *conte
 		length = to - from + 1
 	}
 	h := w.Header()
-	h.Set("Content-Type", c.contentTypeHeader(false))
+	if ct := c.contentTypeHeader(); ct != "" {
+		h.Set("Content-Type", ct)
+	} else {
+		h["Content-Type"] = nil // none stored: send none (and stop Go from sniffing one)
+	}
 	h.Set("Content-Length", strconv.FormatInt(length, 10))
 	h.Set("X-compId", c.id)
 	h.Set("X-Content-Length", strconv.FormatInt(c.item.Size, 10))
@@ -372,9 +390,15 @@ func (s *Server) createPut(w http.ResponseWriter, r *http.Request, p params, cr 
 	cm := metaFromRequest(firstNonEmpty(r.Header.Get("Content-Type"), p.get("Content-Type")), now, nil)
 	if cs := p.get("charset"); cs != "" && cm.Charset == "" {
 		cm.Charset = cs
+		if cm.Raw != "" {
+			cm.Raw += "; charset=" + cs
+		}
 	}
 	if v := p.get("version"); v != "" && cm.Version == "" {
 		cm.Version = v
+		if cm.Raw != "" {
+			cm.Raw += "; version=" + v
+		}
 	}
 	err = s.docs.saveMeta(r.Context(), cr, docID, l.d, func(m *docMeta, isNew bool) {
 		if isNew {

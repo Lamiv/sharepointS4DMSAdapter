@@ -106,6 +106,7 @@ Then test the setup:
 ```
 
 - `<shard>` is the first byte (hex) of SHA-1(docId). It spreads documents over 256 folders.
+- Each component's `Content-Type` is stored exactly as SAP sent it and returned unchanged by `info`, `docGet` and `get`. If SAP sent none, none is returned. (SAP's test report RSCMSTH2 compares it literally.)
 - Characters SharePoint rejects in docId/compId are stored as `%XX` (for example `scan:1.tif` becomes `scan%3A1.tif`), and translated back on every response.
 - SharePoint versioning applies: `update` and `append` create new versions of the component file.
 

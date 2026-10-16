@@ -50,6 +50,10 @@ type contentRep struct {
 }
 
 type compMeta struct {
+	// Raw is the Content-Type exactly as SAP sent it on create/update. It is
+	// returned unchanged: SAP's own test (RSCMSTH2) compares it literally,
+	// so "text/plain" must not come back as "text/plain; charset=".
+	Raw         string    `json:"raw,omitempty"`
 	ContentType string    `json:"contentType,omitempty"`
 	Charset     string    `json:"charset,omitempty"`
 	Version     string    `json:"version,omitempty"`
@@ -67,9 +71,10 @@ type docMeta struct {
 }
 
 type component struct {
-	id   string
-	item graph.DriveItem
-	meta compMeta
+	id      string
+	item    graph.DriveItem
+	meta    compMeta
+	hasMeta bool // the sidecar describes this component (it was written through this interface)
 }
 
 func (c *component) contentType() string {
@@ -373,6 +378,7 @@ func (s *docStore) loadFresh(ctx context.Context, cr *contentRep, docID string) 
 		c := &component{id: id, item: it, meta: compMeta{Created: it.CreatedDateTime, Modified: it.LastModifiedDateTime}}
 		if m := d.meta.Components[id]; m != nil {
 			c.meta = *m
+			c.hasMeta = true
 		}
 		d.comps = append(d.comps, c)
 	}

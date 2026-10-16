@@ -371,7 +371,7 @@ func TestDocumentLifecycle(t *testing.T) {
 	// get: default component "data", explicit compId, offsets (inclusive).
 	resp, b = e.do("GET", e.u("get", true, "r", "contRep", "Z1", "docId", docID), nil, nil)
 	e.expect(resp, b, 200)
-	if !bytes.Equal(b, pdf) || resp.Header.Get("Content-Type") != "application/pdf; version=1.7" {
+	if !bytes.Equal(b, pdf) || resp.Header.Get("Content-Type") != "application/pdf; charset=; version=1.7" {
 		t.Fatalf("get data: %d bytes, ct %q", len(b), resp.Header.Get("Content-Type"))
 	}
 	resp, b = e.do("GET", e.u("get", true, "r", "contRep", "Z1", "docId", docID, "compId", "scan:page?1.tif", "fromOffset", "2", "toOffset", "5"), nil, nil)
@@ -547,7 +547,7 @@ func TestConcurrentUpdatesAcrossInstances(t *testing.T) {
 		t.Fatalf("want %d components, got %d: %v", n+1, len(types), types)
 	}
 	for i := range n {
-		if want := fmt.Sprintf("application/x-test%02d; charset=", i); types[fmt.Sprintf("c%02d", i)] != want {
+		if want := fmt.Sprintf("application/x-test%02d", i); types[fmt.Sprintf("c%02d", i)] != want {
 			t.Errorf("c%02d: metadata lost, Content-Type %q", i, types[fmt.Sprintf("c%02d", i)])
 		}
 	}
@@ -703,5 +703,70 @@ func TestRefusedRequestsAreLoggedWithReason(t *testing.T) {
 	}
 	if strings.Contains(out, "secKey") {
 		t.Error("log must not contain the secKey")
+	}
+}
+
+// Regression for report RSCMSTH2 on a real S/4HANA system: it creates
+// documents and compares the Content-Type that info/get return with what it
+// sent, literally. "text/plain" came back as "text/plain; charset=", and a
+// component created without a Content-Type came back as
+// "application/octet-stream".
+func TestContentTypeIsReturnedExactlyAsSent(t *testing.T) {
+	e := setupCS(t)
+	const b = "KoZIhvcNAQcB"
+	part := func(comp, ct string) string {
+		h := "--" + b + "\r\nX-compId: " + comp + "\r\n"
+		if ct != "" {
+			h += "Content-Type: " + ct + "\r\n"
+		}
+		return h + "\r\nhello\r\n"
+	}
+	body := part("data1.txt", "text/plain") + part("data2.txt", "text/plain; charset=utf-8") + part("data3.txt", "application/x-alf; charset=") +
+		part("data4.txt", "application/pdf; charset=; version=1.7") + part("data5", "") + "--" + b + "--\r\n"
+	resp, out := e.do("POST", e.u("create", false, "", "contRep", "Z2", "docId", "CT1"), strings.NewReader(body),
+		map[string]string{"Content-Type": "multipart/form-data; boundary=" + b})
+	e.expect(resp, out, 201)
+
+	want := map[string]string{"data1.txt": "text/plain", "data2.txt": "text/plain; charset=utf-8", "data3.txt": "application/x-alf; charset=",
+		"data4.txt": "application/pdf; charset=; version=1.7", "data5": ""}
+	check := func(what string, got map[string]string) {
+		for comp, w := range want {
+			if got[comp] != w {
+				t.Errorf("%s %s: Content-Type %q, want %q", what, comp, got[comp], w)
+			}
+		}
+	}
+	partTypes := func(cmd string) map[string]string {
+		resp, out := e.do("GET", e.u(cmd, false, "", "contRep", "Z2", "docId", "CT1"), nil, nil)
+		e.expect(resp, out, 200)
+		got := map[string]string{}
+		for _, p := range parseMultipart(t, resp, out) {
+			got[p.h.Get("X-compId")] = p.h.Get("Content-Type")
+		}
+		return got
+	}
+	check("info", partTypes("info"))
+	check("docGet", partTypes("docGet"))
+
+	got := map[string]string{}
+	for comp := range want {
+		resp, out = e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "CT1", "compId", comp), nil, nil)
+		e.expect(resp, out, 200)
+		got[comp] = resp.Header.Get("Content-Type")
+	}
+	check("get", got)
+
+	// A zero-byte component without Content-Type: nothing is invented.
+	req, _ := http.NewRequest("PUT", e.u("create", false, "", "contRep", "Z2", "docId", "CT0", "compId", "data"), strings.NewReader(""))
+	req.Header.Del("Content-Type")
+	r0, err := http.DefaultClient.Do(req)
+	if err != nil || r0.StatusCode != 201 {
+		t.Fatalf("create zero-byte component: %v %v", err, r0)
+	}
+	r0.Body.Close()
+	resp, out = e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "CT0", "compId", "data"), nil, nil)
+	e.expect(resp, out, 200)
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		t.Errorf("zero-byte component without Content-Type: got %q", ct)
 	}
 }
