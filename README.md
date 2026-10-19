@@ -2,7 +2,7 @@
 
 **Open-Source Enterprise Content Gateway**
 
-Connect SAP S/4HANA and enterprise applications to Microsoft SharePoint Online and OneDrive for Business—without building custom storage integrations.
+Connect SAP S/4HANA and enterprise applications to Microsoft SharePoint Online and OneDrive for Business.
 
 ZAKS Drive is a lightweight, self-hosted content gateway that provides an SAP-compatible Content Server interface and a REST API for storing, retrieving, and managing documents through Microsoft Graph. Documents are stored in your SharePoint document library or OneDrive, so they stay under the Microsoft 365 security, retention and backup you already run.
 
