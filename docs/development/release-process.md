@@ -12,13 +12,13 @@ Criteria for `v1.0.0` (all must be true):
 - RSCMSTAT and RSCMSTHS run.
 - Load test repeated against a real test tenant.
 - An independent security review of the signature verification and authentication code.
-- The module path and repository name settled.
-- Trademark clearance and name permission complete.
+- The module path settled (the repository is already renamed to `zaks-drive`).
+- Name approved by the repository owner (done); an independent trademark search is optional but recommended for wide distribution.
 
 ## Prerequisites (owner approval)
 
-1. **Trademark clearance** for "ZAKS Drive", and organisational permission to use the AKS-related name.
-2. Decision on the repository name ([rename plan](repository-rename-plan.md)).
+1. **Name:** approved by the repository owner as approving authority. The brand is "ZAKS Drive", not the AKS-related name.
+2. Repository renamed to `zaks-drive` ([repository rename](repository-rename.md)).
 3. `LICENSE` unchanged (MIT, with its copyright notice).
 4. A reviewed pull request for the branding work.
 

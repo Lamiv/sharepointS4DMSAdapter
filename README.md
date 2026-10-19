@@ -13,7 +13,7 @@ Two independent interfaces; use either one or both:
 
 ZAKS Drive is a content storage gateway, not a document management application: it has no user interface, workflow or business metadata of its own.
 
-[![CI](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml/badge.svg)](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml)
+[![CI](https://github.com/Lamiv/zaks-drive/actions/workflows/ci.yml/badge.svg)](https://github.com/Lamiv/zaks-drive/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
@@ -89,7 +89,7 @@ Details: [architecture](docs/architecture.md).
 No Microsoft 365 tenant or SAP system needed; this uses a bundled Graph emulator.
 
 ```bash
-git clone https://github.com/Lamiv/sharepointS4DMSAdapter.git zaks-drive && cd zaks-drive
+git clone https://github.com/Lamiv/zaks-drive.git zaks-drive && cd zaks-drive
 docker compose -f loadtest/docker-compose.yml up -d --build graphmock adapter
 
 curl -sS -H "X-API-Key: loadtest-key" http://localhost:8080/api/v1/repositories

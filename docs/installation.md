@@ -25,7 +25,7 @@ It needs only Python 3 and checks token, permissions, site, library, upload, dow
 ## 2. Get the code
 
 ```bash
-git clone https://github.com/Lamiv/sharepointS4DMSAdapter.git /opt/zaks-drive
+git clone https://github.com/Lamiv/zaks-drive.git /opt/zaks-drive
 cd /opt/zaks-drive
 ```
 

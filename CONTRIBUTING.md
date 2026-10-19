@@ -13,8 +13,8 @@ Thank you for helping. This project (ZAKS Drive) connects SAP S/4HANA and your o
 Everything builds and tests inside Docker:
 
 ```bash
-git clone https://github.com/Lamiv/sharepointS4DMSAdapter.git
-cd sharepointS4DMSAdapter
+git clone https://github.com/Lamiv/zaks-drive.git
+cd zaks-drive
 
 # unit and integration tests (the whole stack against a Microsoft Graph emulator), with the race detector
 docker run --rm -v "$PWD:/src" -w /src golang:1.25 go test -race -count=1 ./...

@@ -8,7 +8,7 @@ This is a statement of direction, not a commitment. There are no dates. Items mo
 - Run SAP reports RSCMSTAT and RSCMSTHS.
 - Test GOS attachments and ArchiveLink.
 - Repeat the load test against a real test tenant.
-- Clear the project name and publish a `v0.1.0-beta.x` pre-release ([release process](docs/development/release-process.md)).
+- Publish a `v0.1.0-beta.x` pre-release ([release process](docs/development/release-process.md)).
 
 ## Next
 
@@ -31,4 +31,4 @@ This is a statement of direction, not a commitment. There are no dates. Items mo
 - Mapping SAP users to SharePoint permissions.
 - Replacing SAP's own authorisation.
 
-Ideas and votes: open a [feature request](https://github.com/Lamiv/sharepointS4DMSAdapter/issues/new?template=feature_request.md).
+Ideas and votes: open a [feature request](https://github.com/Lamiv/zaks-drive/issues/new?template=feature_request.md).

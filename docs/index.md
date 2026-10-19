@@ -29,7 +29,7 @@ ZAKS Drive is an open-source content gateway that connects SAP S/4HANA and enter
 
 ## Development
 
-[Local development](development/local-development.md) · [Testing](development/testing.md) · [Load testing](development/load-testing.md) · [Load test results](development/load-test-results.md) · [Release process](development/release-process.md) · [Branding and compatibility](development/branding-and-compatibility.md) · [Repository rename plan](development/repository-rename-plan.md)
+[Local development](development/local-development.md) · [Testing](development/testing.md) · [Load testing](development/load-testing.md) · [Load test results](development/load-test-results.md) · [Release process](development/release-process.md) · [Branding and compatibility](development/branding-and-compatibility.md) · [Repository rename](development/repository-rename.md)
 
 ## Project
 

@@ -17,7 +17,7 @@ import (
 
 // DocsURL is the page that explains every code; the anchor is the lower-case
 // code.
-const DocsURL = "https://github.com/Lamiv/sharepointS4DMSAdapter/blob/main/docs/error-codes.md"
+const DocsURL = "https://github.com/Lamiv/zaks-drive/blob/main/docs/error-codes.md"
 
 // Entry describes one code in the catalogue.
 type Entry struct {

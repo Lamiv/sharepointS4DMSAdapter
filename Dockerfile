@@ -24,7 +24,7 @@ ENTRYPOINT ["/graphmock"]
 FROM gcr.io/distroless/static-debian12:nonroot AS adapter
 LABEL org.opencontainers.image.title="ZAKS Drive" \
       org.opencontainers.image.description="Self-hosted content gateway connecting SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business." \
-      org.opencontainers.image.source="https://github.com/Lamiv/sharepointS4DMSAdapter" \
+      org.opencontainers.image.source="https://github.com/Lamiv/zaks-drive" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=build /out/zaks-drive /out/adapter /
 # Disk-backed spool for uploads without Content-Length (mount a volume here).

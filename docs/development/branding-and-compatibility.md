@@ -48,4 +48,4 @@ Pull the new version and run `docker compose -f deploy/docker-compose.yml up -d 
 
 ZAKS Drive is an independent open-source project and is not affiliated with, endorsed by, or certified by SAP SE or Microsoft Corporation. SAP, SAP S/4HANA, Microsoft, SharePoint, and other referenced product names are trademarks of their respective owners.
 
-**Before a public release:** the name "ZAKS Drive" and any use of the AKS-related name need trademark clearance and permission from the owning organisation. This has not been done. See the [release process](release-process.md).
+**Approval:** the repository owner, as approving authority, approved the name "ZAKS Drive" and its use. The brand is "ZAKS Drive"; the AKS-related name is not used as a product brand. See [repository rename](repository-rename.md).

@@ -5,12 +5,10 @@ Run ZAKS Drive on your machine in about five minutes, **without a Microsoft 365 
 You need Docker with Compose v2, `git` and `curl`.
 
 ```bash
-git clone https://github.com/Lamiv/sharepointS4DMSAdapter.git zaks-drive
+git clone https://github.com/Lamiv/zaks-drive.git zaks-drive
 cd zaks-drive
 docker compose -f loadtest/docker-compose.yml up -d --build graphmock adapter
 ```
-
-> The repository URL is the current one. It changes if the repository is renamed; see the [rename plan](development/repository-rename-plan.md).
 
 The stack uses `deploy/config.mock.yaml`: API key `loadtest-key`, repository `DMS`, SAP content repository `Z1` with signatures switched off. These settings are for the emulator only.
 
