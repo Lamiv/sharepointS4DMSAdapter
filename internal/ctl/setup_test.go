@@ -299,3 +299,35 @@ func TestEnvValueQuoting(t *testing.T) {
 		}
 	}
 }
+
+func TestImageBuildCarriesTheReleaseRevisionOnlyWhenItIsAValidCommit(t *testing.T) {
+	e := newEnv(t)
+	share := t.TempDir()
+	dir := filepath.Join(share, "0.1.0")
+	must(t, os.MkdirAll(filepath.Join(dir, "deploy"), 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "zaks-drive-server"), []byte("bin"), 0o755))
+	e.app.Getenv = func(k string) string {
+		if k == "ZAKS_DRIVE_SHARE" {
+			return share
+		}
+		return ""
+	}
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	for name, tc := range map[string]struct {
+		json string
+		want bool
+	}{"valid": {`{"commit":"` + sha + `"}`, true}, "short": {`{"commit":"abc123"}`, false}, "injection": {`{"commit":"` + sha + ` --privileged"}`, false}, "garbage": {`not json`, false}} {
+		must(t, os.WriteFile(filepath.Join(dir, "release.json"), []byte(tc.json), 0o644))
+		e.run.calls = nil
+		if _, err := e.app.buildImage(nil2(), dir, "0.1.0"); err != nil {
+			t.Fatal(err)
+		}
+		has := e.run.has("--build-arg REVISION=" + sha)
+		if has != tc.want {
+			t.Errorf("%s: revision build-arg present=%v, want %v: %v", name, has, tc.want, e.run.all())
+		}
+		if e.run.has("--privileged") {
+			t.Errorf("%s: unvalidated text reached a docker argument", name)
+		}
+	}
+}

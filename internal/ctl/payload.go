@@ -2,6 +2,7 @@ package ctl
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -60,6 +61,9 @@ func (a *App) payloadDir(version string) (string, bool) {
 func (a *App) buildImage(ctx context.Context, dir, version string) (Result, error) {
 	args := []string{"build", "-f", filepath.Join(dir, "deploy", "Dockerfile.release"),
 		"--build-arg", "VERSION=" + version, "-t", "zaks-drive:" + version}
+	if rev := releaseRevision(dir); rev != "" {
+		args = append(args, "--build-arg", "REVISION="+rev) // the source revision recorded in the release bundle
+	}
 	if base := a.env("ZAKS_DRIVE_BASE_IMAGE"); base != "" {
 		args = append(args, "--build-arg", "BASE_IMAGE="+base)
 	}
@@ -84,4 +88,22 @@ func (a *App) buildFromPayload(ctx context.Context, version string) int {
 		return a.fail(ExitFail, "docker build failed: "+oneLine(trimLines(res.Stderr, 4)), "check your network access to gcr.io (the base image) and run again")
 	}
 	return ExitOK
+}
+
+var revisionRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// releaseRevision returns the git commit recorded in <dir>/release.json, or "" when it is
+// absent or not a full commit hash (so nothing unvalidated reaches a docker argument).
+func releaseRevision(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, "release.json"))
+	if err != nil {
+		return ""
+	}
+	var rj struct {
+		Commit string `json:"commit"`
+	}
+	if json.Unmarshal(b, &rj) != nil || !revisionRe.MatchString(rj.Commit) {
+		return ""
+	}
+	return rj.Commit
 }
