@@ -5,12 +5,14 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG VERSION=dev
-# The server binary is "zaks-drive". "adapter" is its name before the rename and stays
-# available (as a second copy; COPY follows symlinks) so existing compose files, health checks
-# and scripts keep working. It will be removed in a future minor release (see CHANGELOG).
+# The server binary is "zaks-drive-server". The public command "zaks-drive" is the host-side
+# management tool (cmd/zaks-drive); it is not part of this image. Inside the image "/zaks-drive"
+# and "/adapter" remain as compatibility names of the server (as extra copies; COPY follows
+# symlinks) so existing compose files, health checks and `exec adapter /zaks-drive check` keep
+# working. They will be removed in a future minor release (see CHANGELOG).
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/zaks-drive ./cmd/adapter && \
-    ln -s zaks-drive /out/adapter && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/zaks-drive-server ./cmd/adapter && \
+    ln -s zaks-drive-server /out/zaks-drive && ln -s zaks-drive-server /out/adapter && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/graphmock ./cmd/graphmock && \
     mkdir -p /out/spool
 
@@ -28,10 +30,10 @@ LABEL org.opencontainers.image.title="ZAKS Drive" \
       org.opencontainers.image.source="https://github.com/Lamiv/zaks-drive" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="MIT"
-COPY --from=build /out/zaks-drive /out/adapter /
+COPY --from=build /out/zaks-drive-server /out/zaks-drive /out/adapter /
 # Disk-backed spool for uploads without Content-Length (mount a volume here).
 COPY --from=build --chown=65532:65532 /out/spool /var/spool/adapter
 EXPOSE 8080 8090 9090
 USER nonroot:nonroot
-ENTRYPOINT ["/zaks-drive"]
+ENTRYPOINT ["/zaks-drive-server"]
 CMD ["-config", "/etc/adapter/config.yaml"]

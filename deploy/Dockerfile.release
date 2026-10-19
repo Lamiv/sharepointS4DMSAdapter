@@ -1,0 +1,21 @@
+# Runtime image built from a verified ZAKS Drive release binary (see docs/cli.md).
+# Build context: the unpacked release directory (zaks-drive-server, spool/).
+#   docker build -f deploy/Dockerfile.release --build-arg VERSION=<version> -t zaks-drive:<version> <dir>
+# To pin the base image, pass --build-arg BASE_IMAGE=gcr.io/distroless/static-debian12@sha256:<digest>.
+ARG BASE_IMAGE=gcr.io/distroless/static-debian12:nonroot
+FROM ${BASE_IMAGE}
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="ZAKS Drive" \
+      org.opencontainers.image.description="Self-hosted content gateway connecting SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business." \
+      org.opencontainers.image.source="https://github.com/Lamiv/zaks-drive" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT"
+# /zaks-drive and /adapter are compatibility names of the server binary; see branding-and-compatibility.md.
+COPY zaks-drive-server /zaks-drive-server
+COPY zaks-drive-server /zaks-drive
+COPY zaks-drive-server /adapter
+COPY --chown=65532:65532 spool /var/spool/adapter
+EXPOSE 8080 8090 9090
+USER nonroot:nonroot
+ENTRYPOINT ["/zaks-drive-server"]
+CMD ["-config", "/etc/adapter/config.yaml"]

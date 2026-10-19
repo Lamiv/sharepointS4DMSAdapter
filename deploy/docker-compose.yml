@@ -25,8 +25,8 @@ services:
     ports:
       # Host ports are configurable in deploy/.env when they are already taken
       # (Ubuntu's Cockpit uses 9090). Container ports stay fixed.
-      - "${REST_PORT:-8080}:8080"                  # Document REST API
-      - "${CS_PORT:-8090}:8090"                    # SAP Content Server HTTP interface (OAC0)
+      - "${BIND_ADDRESS:-0.0.0.0}:${REST_PORT:-8080}:8080"   # Document REST API
+      - "${BIND_ADDRESS:-0.0.0.0}:${CS_PORT:-8090}:8090"     # SAP Content Server HTTP interface (OAC0)
       - "127.0.0.1:${ADMIN_PORT:-9090}:9090"       # metrics/health: localhost only
     tmpfs:
       - /tmp:size=64m
@@ -35,7 +35,7 @@ services:
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
     healthcheck:
-      test: ["CMD", "/adapter", "-healthcheck"]
+      test: ["CMD", "/zaks-drive-server", "-healthcheck"]
       interval: 15s
       timeout: 3s
       retries: 3
