@@ -6,3 +6,8 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/Lamiv/zaks-drive/security/advisories/new
     about: Please report security problems privately.
+# Once the repository owner enables GitHub Discussions, add this entry so questions and ideas
+# go there and the issue tracker stays for actionable work:
+#  - name: Ask a question or discuss an idea
+#    url: https://github.com/Lamiv/zaks-drive/discussions
+#    about: Q&A, ideas and architecture, SAP integration, show and tell.

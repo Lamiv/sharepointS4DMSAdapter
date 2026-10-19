@@ -202,11 +202,25 @@ Start at the [documentation index](docs/index.md).
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Releases: [CHANGELOG](CHANGELOG.md).
+See [ROADMAP.md](ROADMAP.md): it separates what is verified, what is under development and where contributors are wanted. Items are not promises. Releases: [CHANGELOG](CHANGELOG.md).
 
-## Contributing
+## Join the Community
 
-Bug reports, documentation fixes and SAP test results are especially welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Questions: [SUPPORT.md](SUPPORT.md).
+ZAKS Drive is open source and built for the community. Whether you are an SAP developer, an integration engineer or a Go contributor, you are welcome to improve the code, extend integrations, fix bugs, write documentation and help shape the project's direction.
+
+ZAKS Drive is an open-source project built to make enterprise document storage integration more accessible. We welcome code contributions, integration improvements, documentation, testing and technical discussions.
+
+**Ways to participate:**
+
+- **Contribute code:** fix bugs, improve performance or extend supported integrations.
+- **Share SAP experience:** test with different S/4HANA releases, DMS configurations and Content Server scenarios, and report what worked.
+- **Improve documentation:** add deployment guides, ABAP and Fiori examples and troubleshooting knowledge.
+- **Discuss ideas:** collaborate on enhancements and architecture in GitHub Discussions (once the owner enables it) and in [RFCs](docs/rfcs/README.md).
+- **Help other developers:** answer questions, reproduce issues and review proposed solutions.
+
+Contributions are developed openly through GitHub Issues, Discussions and pull requests, and follow the [contribution guidelines](CONTRIBUTING.md) and the automated checks that run on every pull request. Start with a [`good first issue`](https://github.com/Lamiv/zaks-drive/labels/good%20first%20issue) or [`help wanted`](https://github.com/Lamiv/zaks-drive/labels/help%20wanted), or file an [SAP test report](https://github.com/Lamiv/zaks-drive/issues/new?template=sap_test_report.md).
+
+The project currently has a single maintainer; see [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made and how contributors can become reviewers and maintainers. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Questions: [SUPPORT.md](SUPPORT.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
 
 ## License
 
