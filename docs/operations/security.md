@@ -1,6 +1,6 @@
 # Security
 
-This page states what ZAKS Drive does for security, what depends on how you deploy it, and what it does not do. It is a description of the code, not an audit or a certification. Report vulnerabilities as described in [SECURITY.md](../../SECURITY.md).
+This page states what ZAKS Drive does for security, what depends on how you deploy it, and what it does not do. It is a description of the code, not an audit or a certification. Report vulnerabilities as described in [SECURITY.md](../../.github/SECURITY.md).
 
 ## Threat surface
 
@@ -71,7 +71,7 @@ Secrets are the Entra client secret, API keys, the admin token and any TLS priva
 
 ## Not implemented
 
-- Entra authentication with a **certificate** instead of a client secret ([roadmap](../../ROADMAP.md)).
+- Entra authentication with a **certificate** instead of a client secret ([roadmap](../roadmap.md)).
 - Per-key rate limiting (only a global in-flight cap exists).
 - A dedicated audit trail. Request logs record request ID, route, path, status, size and remote address, but not which API key was used, and they are ordinary logs, not tamper-evident.
 - Malware scanning of uploads, content inspection, encryption beyond what TLS and Microsoft 365 provide.

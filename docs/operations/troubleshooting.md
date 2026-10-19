@@ -25,4 +25,4 @@ docker compose -f deploy/docker-compose.yml logs --tail 100 adapter
 | 503 with `Retry-After` | SharePoint throttling or the in-flight limit | Lower `graph.maxConcurrency`; spread out bulk loads |
 | Container restarts repeatedly | Look at `docker compose ... logs` for the first error; `OOMKilled` means the 1 GiB limit was hit | Lower `transfer.memoryBudgetBytes` or raise `mem_limit` |
 
-If it is still unclear, collect the log lines for the failing request and its `X-Request-ID` (see [SUPPORT](../../SUPPORT.md)). Never share `deploy/.env`.
+If it is still unclear, collect the log lines for the failing request and its `X-Request-ID` (see [SUPPORT](../../.github/SUPPORT.md)). Never share `deploy/.env`.

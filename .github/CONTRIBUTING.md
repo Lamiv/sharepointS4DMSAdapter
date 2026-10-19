@@ -1,6 +1,6 @@
 # Contributing to ZAKS Drive
 
-ZAKS Drive is open source and built for the community. Whether you are an SAP developer, an integration engineer, a Go developer or someone who runs infrastructure, you are welcome to fix bugs, improve the code, extend integrations, write documentation, test on your own SAP system and help shape where the project goes. The [governance](GOVERNANCE.md) page explains how decisions are made.
+ZAKS Drive is open source and built for the community. Whether you are an SAP developer, an integration engineer, a Go developer or someone who runs infrastructure, you are welcome to fix bugs, improve the code, extend integrations, write documentation, test on your own SAP system and help shape where the project goes. The [governance](../docs/governance.md) page explains how decisions are made.
 
 You do not need to be an expert in everything. SAP people often know the protocol and not Go; Go people often know the code and not SAP. Both are needed.
 
@@ -12,7 +12,7 @@ You do not need to be an expert in everything. SAP people often know the protoco
 | **Test on your SAP landscape** | Run the SAP test reports or a DMS, GOS or ArchiveLink scenario and file an [SAP test report](https://github.com/Lamiv/zaks-drive/issues/new?template=sap_test_report.md): the release, what you configured, what worked |
 | **Improve the documentation** | Fix what confused you, add deployment guides, ABAP or Fiori examples, troubleshooting knowledge. Documentation changes are first-class contributions |
 | **Discuss ideas** | GitHub Discussions (when enabled) or an issue |
-| **Propose a larger change** | Write an [RFC](docs/rfcs/README.md) |
+| **Propose a larger change** | Write an [RFC](../docs/rfcs/README.md) |
 | **Help others** | Answer questions, reproduce issues, review pull requests |
 | **Report a vulnerability** | Privately, as described in [SECURITY.md](SECURITY.md); never as a public issue |
 
@@ -77,7 +77,7 @@ API_KEY=loadtest-key CS_REPO=Z1 bash scripts/e2e-smoke.sh
 docker compose -f loadtest/docker-compose.yml down -v
 ```
 
-More: [quickstart](docs/quickstart.md), [local development](docs/development/local-development.md), [testing](docs/development/testing.md).
+More: [quickstart](../docs/quickstart.md), [local development](../docs/development/local-development.md), [testing](../docs/development/testing.md).
 
 ### Real systems are optional
 
@@ -106,10 +106,10 @@ Tests that need real Microsoft 365 or SAP credentials are not part of CI and are
    go run ./cmd/adapter errors > docs/error-codes.md
    ```
    A test fails if `docs/error-codes.md` is out of date.
-2. **Never log or return secrets, and never log text from outside.** Not the client secret, API keys, admin token, `Authorization` values, signed URLs (`secKey`), Graph or Entra error text, request URLs or file contents. Log with `safelog.Err(err)` and the error's code, status and title; show people text only through `safelog.Redact`. A test fails the build if a log call takes `err.Error()` or an error's `Detail`. Read request headers by their literal name (`r.Header.Get("X-Request-ID")`, never `r.Header.Get(name)`): CodeQL treats a header read with a variable name as a possible credential and then flags every log line an error derived from it can reach; a test enforces this too. See the [logging policy](docs/operations/security.md#logging-policy).
+2. **Never log or return secrets, and never log text from outside.** Not the client secret, API keys, admin token, `Authorization` values, signed URLs (`secKey`), Graph or Entra error text, request URLs or file contents. Log with `safelog.Err(err)` and the error's code, status and title; show people text only through `safelog.Redact`. A test fails the build if a log call takes `err.Error()` or an error's `Detail`. Read request headers by their literal name (`r.Header.Get("X-Request-ID")`, never `r.Header.Get(name)`): CodeQL treats a header read with a variable name as a possible credential and then flags every log line an error derived from it can reach; a test enforces this too. See the [logging policy](../docs/operations/security.md#logging-policy).
 3. **Test what you change.** Fix a bug by first writing the test that reproduces it. The emulator is deliberately strict about Graph behaviour seen in production (for example `$select` dropping the download URL); add such quirks to it instead of loosening a test.
 4. **SAP protocol changes follow SAP's documentation.** Cite the section in a comment or the commit message. If a real SAP system differs from the documentation, describe what it did and keep the lenient behaviour covered by a test.
-5. **Keep compatibility.** Do not change API routes, request or response contracts, authentication behaviour, configuration keys, storage paths or SAP protocol behaviour in an ordinary pull request. If a change is needed, say so in the pull request and expect an [RFC](docs/rfcs/README.md) and a compatibility assessment.
+5. **Keep compatibility.** Do not change API routes, request or response contracts, authentication behaviour, configuration keys, storage paths or SAP protocol behaviour in an ordinary pull request. If a change is needed, say so in the pull request and expect an [RFC](../docs/rfcs/README.md) and a compatibility assessment.
 6. **Keep it small and readable.** Match the surrounding code, run `gofmt`, and write comments that explain *why*.
 7. **No secrets in the repository.** `deploy/.env` and `deploy/config.yaml` are git-ignored; keep real values out of tests, examples and screenshots.
 
@@ -117,11 +117,11 @@ Tests that need real Microsoft 365 or SAP credentials are not part of CI and are
 
 Documentation changes are welcome on their own. Fix what confused you, add an ABAP or Fiori example, write down a troubleshooting finding.
 
-- Keep claims honest: mark what you verified and on which release, and what you did not. The [README feature table](README.md#what-is-verified) is the reference for status.
+- Keep claims honest: mark what you verified and on which release, and what you did not. The [README feature table](../README.md#what-is-verified) is the reference for status.
 - Use "ZAKS Drive" (with a space) in prose and `zaks-drive` in commands and identifiers.
 - Do not copy text or logos from SAP or Microsoft; reference their products by name only.
 - Run `python3 scripts/check_docs.py` to check links and anchors.
-- If you change behaviour, update the docs in the same pull request: the relevant page under `docs/`, `docs/api/openapi.yaml` for the REST API (a test compares it to the routes), and the [CHANGELOG](CHANGELOG.md).
+- If you change behaviour, update the docs in the same pull request: the relevant page under `docs/`, `docs/api/openapi.yaml` for the REST API (a test compares it to the routes), and the [CHANGELOG](../CHANGELOG.md).
 
 ## Reviewing
 
@@ -131,10 +131,10 @@ Reviewing is a contribution. You do not need merge rights to comment on a pull r
 
 - One logical change per pull request, with a message that says what changed **and why**.
 - All checks pass: `gofmt`, `go vet`, `go test`, the documentation link check and the Docker build. CI runs them on every pull request, from forks too, with no access to any secret.
-- Maintainers review and merge. Changes that touch compatibility, security or releases need maintainer approval ([governance](GOVERNANCE.md)).
+- Maintainers review and merge. Changes that touch compatibility, security or releases need maintainer approval ([governance](../docs/governance.md)).
 
 ## Recognition
 
-Your commits keep your name. The [CHANGELOG](CHANGELOG.md) and release notes credit contributors, and test reports, reviews and documentation count the same as code.
+Your commits keep your name. The [CHANGELOG](../CHANGELOG.md) and release notes credit contributors, and test reports, reviews and documentation count the same as code.
 
-By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+By contributing you agree that your contribution is licensed under the [MIT License](../LICENSE).

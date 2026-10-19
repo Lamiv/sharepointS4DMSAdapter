@@ -65,7 +65,7 @@ ZAKS Drive is one small Go service in a Docker container. SAP sees it as an HTTP
 | GOS attachments, ArchiveLink | **Not tested** | Same protocol commands; [see notes](docs/sap/kpro-gos-archivelink.md) |
 | RSCMSTAT (transport), RSCMSTHS | Not run | |
 | `attrSearch`, CSADMIN (`adminContRep`) | Not implemented | Answer 501 |
-| Entra certificate authentication | Not implemented | [Roadmap](ROADMAP.md) |
+| Entra certificate authentication | Not implemented | [Roadmap](docs/roadmap.md) |
 | Document browsing UI | Not provided | API and SAP interface only |
 | High availability, Kubernetes manifests | Not tested / not provided | |
 | arm64 | Cross-compiles; untested on hardware | |
@@ -147,7 +147,7 @@ Guide with examples: [REST API](docs/api/rest-api.md). Contract: [openapi.yaml](
 
 ## Security
 
-ZAKS Drive runs as one Entra application with the narrowest permission that fits (`Sites.Selected` plus a site grant is supported). Secrets belong in `deploy/.env`, which is git-ignored. Port 9090 listens on localhost only. TLS, network exposure and API key hygiene depend on your deployment. See [security](docs/operations/security.md) for what is implemented, what depends on you and what is missing. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+ZAKS Drive runs as one Entra application with the narrowest permission that fits (`Sites.Selected` plus a site grant is supported). Secrets belong in `deploy/.env`, which is git-ignored. Port 9090 listens on localhost only. TLS, network exposure and API key hygiene depend on your deployment. See [security](docs/operations/security.md) for what is implemented, what depends on you and what is missing. Report vulnerabilities as described in [SECURITY.md](.github/SECURITY.md).
 
 ## Performance
 
@@ -222,7 +222,7 @@ Start at the [documentation index](docs/index.md).
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): it separates what is verified, what is under development and where contributors are wanted. Items are not promises. Releases: [CHANGELOG](CHANGELOG.md).
+See [the roadmap](docs/roadmap.md): it separates what is verified, what is under development and where contributors are wanted. Items are not promises. Releases: [CHANGELOG](CHANGELOG.md).
 
 ## Join the Community
 
@@ -238,9 +238,9 @@ ZAKS Drive is an open-source project built to make enterprise document storage i
 - **Discuss ideas:** collaborate on enhancements and architecture in GitHub Discussions (once the owner enables it) and in [RFCs](docs/rfcs/README.md).
 - **Help other developers:** answer questions, reproduce issues and review proposed solutions.
 
-Contributions are developed openly through GitHub Issues, Discussions and pull requests, and follow the [contribution guidelines](CONTRIBUTING.md) and the automated checks that run on every pull request. Start with a [`good first issue`](https://github.com/Lamiv/zaks-drive/labels/good%20first%20issue) or [`help wanted`](https://github.com/Lamiv/zaks-drive/labels/help%20wanted), or file an [SAP test report](https://github.com/Lamiv/zaks-drive/issues/new?template=sap_test_report.md).
+Contributions are developed openly through GitHub Issues, Discussions and pull requests, and follow the [contribution guidelines](.github/CONTRIBUTING.md) and the automated checks that run on every pull request. Start with a [`good first issue`](https://github.com/Lamiv/zaks-drive/labels/good%20first%20issue) or [`help wanted`](https://github.com/Lamiv/zaks-drive/labels/help%20wanted), or file an [SAP test report](https://github.com/Lamiv/zaks-drive/issues/new?template=sap_test_report.md).
 
-The project currently has a single maintainer; see [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made and how contributors can become reviewers and maintainers. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Questions: [SUPPORT.md](SUPPORT.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
+The project currently has a single maintainer; see [the governance page](docs/governance.md) for how decisions are made and how contributors can become reviewers and maintainers. Please follow the [Code of Conduct](.github/CODE_OF_CONDUCT.md). Questions: [SUPPORT.md](.github/SUPPORT.md). Report vulnerabilities privately: [SECURITY.md](.github/SECURITY.md).
 
 ## License
 

@@ -24,7 +24,7 @@ An RFC is not needed for bug fixes, documentation, tests, small refactors or cle
 2. **Write the RFC.** Copy [`0000-template.md`](0000-template.md) to `docs/rfcs/NNNN-short-title.md` (use the next free number; use `0000-...` while it is a draft pull request) and fill it in.
 3. **Open a pull request** titled `RFC: <title>` with the label `rfc`. The pull request is the discussion.
 4. **Discuss in the open.** Anyone may comment. The author answers questions and updates the document. Keep comments about the proposal.
-5. **Decision.** Maintainers decide after the discussion has had reasonable time (usually at least two weeks for a significant change), and record the outcome and reasons in the RFC: *accepted*, *rejected* or *deferred*. Where consensus cannot be reached, a maintainer decides ([governance](../../GOVERNANCE.md)).
+5. **Decision.** Maintainers decide after the discussion has had reasonable time (usually at least two weeks for a significant change), and record the outcome and reasons in the RFC: *accepted*, *rejected* or *deferred*. Where consensus cannot be reached, a maintainer decides ([governance](../governance.md)).
 6. **Implementation.** An accepted RFC is merged as a document. Implementation happens through ordinary pull requests that link to it, by the author or by anyone. The RFC's status is updated to *implemented* (with the version) when done.
 
 Rejected and deferred RFCs are kept, with the reasons, so the same discussion does not need to be repeated.

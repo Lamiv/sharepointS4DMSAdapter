@@ -34,7 +34,7 @@ ZAKS Drive is an open-source content gateway that connects SAP S/4HANA and enter
 
 ## Project
 
-[Roadmap](roadmap.md) · [Governance](../GOVERNANCE.md) · [RFCs](rfcs/README.md) · [Changelog](../CHANGELOG.md) · [Contributing](../CONTRIBUTING.md) · [Security policy](../SECURITY.md) · [Support](../SUPPORT.md)
+[Roadmap](roadmap.md) · [Governance](governance.md) · [RFCs](rfcs/README.md) · [Changelog](../CHANGELOG.md) · [Contributing](../.github/CONTRIBUTING.md) · [Security policy](../.github/SECURITY.md) · [Support](../.github/SUPPORT.md)
 
 ## Moved documents
 

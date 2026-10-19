@@ -33,4 +33,4 @@ SAP raised this while creating a DMS original in CV01N, before any request reach
 - The ZAKS Drive version (`zaks-drive version`).
 - The `request refused` log lines for the failure, with `secKey` never present (it is not logged).
 - The SAP report or transaction, and the exact SAP message.
-- Never post `deploy/.env`, client secrets or tokens. See [SUPPORT](../../SUPPORT.md).
+- Never post `deploy/.env`, client secrets or tokens. See [SUPPORT](../../.github/SUPPORT.md).

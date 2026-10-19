@@ -12,8 +12,8 @@ The repository owner, as approving authority, approved the name "ZAKS Drive" and
 
 ## What was updated after the rename
 
-- Clone URLs in `README.md`, `CONTRIBUTING.md`, `docs/installation.md`, `docs/quickstart.md`.
-- `DocsURL` in `internal/apperr/apperr.go` (error responses link to the catalogue), the OCI source label in the `Dockerfile`, the issue template links, `SUPPORT.md`, `ROADMAP.md`, the CI badge.
+- Clone URLs in `README.md`, `.github/CONTRIBUTING.md`, `docs/installation.md`, `docs/quickstart.md`.
+- `DocsURL` in `internal/apperr/apperr.go` (error responses link to the catalogue), the OCI source label in the `Dockerfile`, the issue template links, `.github/SUPPORT.md`, `docs/roadmap.md`, the CI badge.
 
 Check for leftovers with `git grep -n 'sharepointS4DMSAdapter'`; only this page should mention the old name.
 
@@ -25,5 +25,5 @@ The module path changed from `sharepointadapter` to `github.com/Lamiv/zaks-drive
 
 - Confirm Dependabot, Actions permissions and branch protection still apply.
 - Set the About description and topics, and upload `docs/images/social-preview.png` (Settings, General, Social preview).
-- Enable private vulnerability reporting, which [SECURITY.md](../../SECURITY.md) relies on. Enabling Discussions is an owner decision.
+- Enable private vulnerability reporting, which [SECURITY.md](../../.github/SECURITY.md) relies on. Enabling Discussions is an owner decision.
 - Run `python3 scripts/check_docs.py` and the CI workflow once after the first push.

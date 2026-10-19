@@ -42,4 +42,4 @@ A test fails if `docs/error-codes.md` is out of date.
 
 - Keep API routes, response contracts and configuration keys stable; see [branding and compatibility](branding-and-compatibility.md).
 - Every user-facing error uses a catalogue code with a cause and a fix.
-- Add tests with changes; see [testing](testing.md). Contribution rules: [CONTRIBUTING](../../CONTRIBUTING.md).
+- Add tests with changes; see [testing](testing.md). Contribution rules: [CONTRIBUTING](../../.github/CONTRIBUTING.md).
