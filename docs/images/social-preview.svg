@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="t d">
+  <title id="t">ZAKS Drive</title>
+  <desc id="d">ZAKS Drive, Open-Source Enterprise Content Gateway. SAP S/4HANA and applications to SharePoint.</desc>
+  <rect width="1280" height="640" fill="#0B1F33"/>
+  <rect x="80" y="150" width="8" height="150" fill="#2F9E8F"/>
+  <text x="112" y="250" font-family="Helvetica, Arial, sans-serif" font-size="120" font-weight="700" fill="#F4F7FA">ZAKS Drive</text>
+  <text x="112" y="310" font-family="Helvetica, Arial, sans-serif" font-size="40" fill="#8DA2B5">Open-Source Enterprise Content Gateway</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#F4F7FA">
+    <text x="112" y="440">SAP Content Server HTTP interface</text>
+    <text x="112" y="490">REST API</text>
+    <text x="112" y="540">SharePoint Online / OneDrive for Business</text>
+  </g>
+  <g fill="#2F9E8F"><circle cx="92" cy="430" r="6"/><circle cx="92" cy="480" r="6"/><circle cx="92" cy="530" r="6"/></g>
+  <text x="1200" y="590" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#8DA2B5">Independent project. Not affiliated with SAP SE or Microsoft.</text>
+</svg>

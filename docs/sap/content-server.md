@@ -1,183 +1,100 @@
-# SAP Content Server HTTP interface: setup and operations
+# SAP Content Server HTTP interface: reference
 
-The adapter acts as an **SAP Content Server** (OAC0 storage type *HTTP content server*). S/4HANA uses it to store DMS originals, GOS attachments and ArchiveLink documents. The documents themselves end up in SharePoint/OneDrive.
+ZAKS Drive implements the **SAP Content Server HTTP interface** that SAP uses for repositories of storage type *HTTP content server* (transaction OAC0). SAP programs address documents by an ID (`docId`) and components by a name (`compId`); ZAKS Drive stores them in SharePoint.
 
-It implements the *SAP Content Server HTTP 4.5 Interface* (ABAP Platform 2025 documentation, help.sap.com topic `4d0551f0eaa85c4be10000000a42189e`) and accepts `pVersion` 0045, 0046 and 0047. The details extracted from that documentation are in [content-server-http-spec-notes.md](content-server-http-spec-notes.md).
+It follows SAP's *Content Server HTTP 4.5 Interface* documentation (ABAP Platform 2025, help.sap.com topic `4d0551f0eaa85c4be10000000a42189e`) and accepts `pVersion` 0045, 0046 and 0047. The details extracted from that documentation are in [content-server-http-spec-notes.md](content-server-http-spec-notes.md).
 
-## 1. Configure the adapter
+How to set it up: [Connect SAP S/4HANA to SharePoint using ZAKS Drive](connect-s4hana-to-sharepoint.md) and [OAC0 configuration](oac0-configuration.md). Problems: [SAP troubleshooting](troubleshooting.md).
 
-In `deploy/config.yaml`:
+> **Protocol support is not the same as a validated business scenario.** This page lists what the protocol layer implements and what was verified with SAP's own test reports. See [Verified against a real SAP system](#verified-against-a-real-sap-system) and the [SAP overview](overview.md).
 
-```yaml
-server:
-  interfaces: [rest, contentrepo]
-  contentRepoAddr: ":8090"
-  adminToken: ${ADMIN_TOKEN}        # protects certificate activation
-
-contentServer:
-  allowedNetworks: []               # optional CIDR allowlist, e.g. S/4 app servers + user networks
-  clockSkew: 5m
-  autoActivateCertificates: false
-  repositories:
-    - contRep: Z1                   # must equal the repository ID created in OAC0
-      description: S/4HANA DMS originals
-      repository: DMS               # storage repository (library + rootPath) from `repositories:`
-      folder: ContentServer/Z1      # below the repository root
-      signature: required           # required | optional | none (see section 4)
-```
-
-Add `ADMIN_TOKEN=<random string>` to `deploy/.env`. You can generate one with `openssl rand -hex 24`. Then restart:
-
-```bash
-docker compose -f deploy/docker-compose.yml up -d --build
-curl -s "http://localhost:8090/ContentServer/ContentServer.dll?serverInfo&pVersion=0047"
-```
-
-The command should answer with `serverStatus="running";...` and one `contRep="Z1";...` line.
-
-## 2. Configure S/4HANA (Basis)
-
-1. **Network.** The S/4HANA application servers must reach `http(s)://<adapter-host>:8090`.
-   - For RISE, raise an ECS service request for outbound connectivity to the VM.
-   - SAP GUI and browser front ends may also fetch documents directly with signed URLs, depending on the OAC0 front-end settings. In that case, users' networks need to reach the adapter as well.
-   - For HTTPS, import the adapter's certificate chain into STRUST (SSL client PSE).
-2. **OAC0**: create the content repository.
-
-   | Field | Value |
-   |---|---|
-   | Content Rep. | `Z1` (same as `contRep` in config) |
-   | Document Area | as required (e.g. *DMS* / *ArchiveLink*) |
-   | Storage type | **HTTP content server** |
-   | Version no. | `0047` (0046/0045 also accepted) |
-   | HTTP server / Port / SSL port | adapter host, `8090` |
-   | HTTP script | `ContentServer/ContentServer.dll` (any path works; the adapter routes by query) |
-   | No signature | leave **unchecked** in production (signature on) |
-
-3. **Send the certificate.** In OAC0, open the repository and choose **Send certificate**. SAP then calls `putCert`. The adapter stores the certificate in SharePoint (`<folder>/~certs/`), but it stays **inactive** until step 3 below.
-4. **Assign the repository to its consumers:**
-   - **DMS:** in OACT, create or assign a storage category pointing to `Z1`, then use it in the document type (DC10) or choose it in CV01N.
-   - **GOS / ArchiveLink:** in OAC3, link object type and document type to `Z1`.
-   - **Attachment service:** follow the attachment-service storage customizing (SAP Note 3094622 and related notes).
-
-## 3. Activate the certificate
-
-Certificates sent with `putCert` are inactive until an administrator activates them. This is the equivalent of the CSADMIN "Certificates" tab on SAP's own content server. Run these on the Docker host:
-
-```bash
-docker compose -f deploy/docker-compose.yml exec adapter /adapter certs list
-docker compose -f deploy/docker-compose.yml exec adapter /adapter certs activate Z1 "CN=S4H"
-```
-
-The CLI uses the `ADMIN_TOKEN` the container already has from `deploy/.env`. `list` shows each certificate's subject, fingerprint, expiry and state. Compare the fingerprint with the System PSE certificate in STRUST before activating. Use `deactivate` to revoke a certificate.
-
-The same functions are available over HTTP on the admin port, which only listens on localhost:
-
-- `GET /admin/contentserver/certificates`
-- `POST /admin/contentserver/certificates/activate` with body `{"contRep":"Z1","authId":"CN=S4H"}`
-
-Then test the setup:
-- Run report **RSCMST** (KPro content server test) for `Z1`.
-- Create a DMS document in CV01N, check the original in, and open it again.
-
-## 4. Security model
-
-- **secKey verification.**
-  - Every signed URL is checked against the activated certificate for its `contRep` and `authId`. The check is a PKCS#7 SignedData signature over the signed parameter values, concatenated **in URL order**. The signed parameters per command come from the spec's "Sign" column.
-  - Supported algorithms: DSA, RSA, ECDSA. Supported digests: MD5, RIPEMD-160, SHA-1, SHA-2.
-  - The adapter also rejects URLs whose `expiration` has passed (plus `clockSkew`), and URLs whose `accessMode` does not allow the operation.
-- **Signature modes** (`signature:` per repository):
-
-  | Mode | Behaviour |
-  |---|---|
-  | `required` | Every command except `serverInfo`/`putCert` needs a valid secKey. Use with OAC0 "No signature" **unchecked**. |
-  | `optional` | Follows the spec's document protection: a secKey is needed when the document's `docProt` covers the access mode (for create: the `docProt` URL parameter). Any secKey that is present is always verified. |
-  | `none` | Signatures are ignored. Only for tests, or behind `allowedNetworks`. |
-
-- **SharePoint access** is done by the adapter's Entra app (client credentials). The SAP side controls who may access what, and SharePoint sees only the app's identity.
-- **Cost:** verification takes about 0.26 ms per request for DSA and about 0.035 ms for RSA-2048 (Go benchmarks).
-
-## 5. Storage layout
-
-```
-<repository root>/<folder>/
-  ~certs/<hash>.json                  certificates received via putCert (+ activation state)
-  <shard>/<docId>/<compId>            one file per component
-  <shard>/<docId>/~sapdoc.json        Content-Type/charset/version per component, docProt, timestamps
-```
-
-- `<shard>` is the first byte (hex) of SHA-1(docId). It spreads documents over 256 folders.
-- Each component's `Content-Type` is stored exactly as SAP sent it and returned unchanged by `info`, `docGet` and `get`. If SAP sent none, none is returned. (SAP's test report RSCMSTH2 compares it literally.)
-- Characters SharePoint rejects in docId/compId are stored as `%XX` (for example `scan:1.tif` becomes `scan%3A1.tif`), and translated back on every response.
-- SharePoint versioning applies: `update` and `append` create new versions of the component file.
-
-## 6. Command support
+## Command support
 
 | Command | Status | Notes |
 |---|---|---|
-| serverInfo | ✅ | ascii (default) and html |
-| info | ✅ | multipart (default, part `Content-Length: 0`, size in `X-Content-Length`) or html; optional compId |
-| get | ✅ | default component `data`, else `data1`; `fromOffset`/`toOffset` (inclusive, -1 = end), always 200 |
-| docGet | ✅ | multipart with content |
-| create | ✅ | PUT (one component) and POST multipart (0..n components, rolled back on error); 403 if it exists |
-| mCreate | ✅ | per-document result lines; 201, 250 (some already existed) or 500 |
-| update | ✅ | PUT creates or overwrites one component. POST replaces the document: **components not sent are deleted** (per spec) |
-| append | ✅ | SharePoint has no append, so existing content plus new data are streamed into a new version |
-| delete | ✅ | GET (per spec) or DELETE; one component or the whole document |
-| search | ✅ | `N;offset;offset;` forward (streamed) or backward (range ≤ 64 MiB) |
+| serverInfo | ✅ | ASCII (default) and HTML |
+| info | ✅ | Multipart (default; each part has `Content-Length: 0`, the component size is in `X-Content-Length`) or HTML; optional `compId` |
+| get | ✅ | Default component `data`, else `data1`; `fromOffset` / `toOffset` (inclusive, `-1` = end); always status 200 |
+| docGet | ✅ | Multipart with content |
+| create | ✅ | PUT (one component) and POST multipart (0 to n components, rolled back on error); 403 if it exists |
+| mCreate | ✅ | One result line per document; 201, 250 (some already existed) or 500 |
+| update | ✅ | PUT creates or overwrites one component. POST replaces the document: **components not sent are deleted** (per the specification) |
+| append | ✅ | SharePoint has no append, so the existing content plus the new data are streamed into a new version |
+| delete | ✅ | GET (as specified) or DELETE; one component or the whole document |
+| search | ✅ | `N;offset;offset;`, forward (streamed) or backward (range up to 64 MiB) |
 | putCert | ✅ | DER, PEM or PKCS#7; 406 if unreadable |
-| attrSearch | ❌ 501 | print-list attribute index search; not needed for DMS/GOS |
-| adminContRep (`configGet`, `configSet`, `certGet`, ...) | ❌ 501 | SAP's CSADMIN administration tool reading/writing the content server's own configuration. The adapter is configured in `config.yaml`, and certificates are managed with `adapter certs`. Not used by DMS, GOS, attachments or ArchiveLink at runtime; only a CSADMIN session against this repository would report an error. |
-| getCert | ❌ 501 | 4.6 cache-server command; the spec gives no syntax |
+| attrSearch | ❌ 501 | Print-list attribute index search; not needed for DMS or GOS |
+| adminContRep (`configGet`, `configSet`, `certGet`, ...) | ❌ 501 | SAP's CSADMIN tool reading or writing the content server's own configuration. ZAKS Drive is configured in `config.yaml`, and certificates are managed with `zaks-drive certs`. Not used at run time by DMS, GOS, attachments or ArchiveLink; only a CSADMIN session against this repository reports an error ([`CS_ADMIN_UNSUPPORTED`](../error-codes.md#cs_admin_unsupported)) |
+| getCert | ❌ 501 | The 0046 cache-server command; the specification gives no syntax |
 
-## 7. Verified against a real S/4HANA system
+HTTP statuses follow SAP's specification (200, 201, 250, 400, 401, 403, 404, 406, 409, 500, plus 405, 413, 501 and 503). The `X-ErrorDescription` header carries the error code, what happened and the fix; see [error codes](../error-codes.md).
 
-On 2026-10-16, on S/4HANA 2025, repository `signature: required`, pVersion 0047, the SAP test reports **RSCMSTH0, RSCMSTH1, RSCMSTH2 (docProt), RSCMSTH3 (mCreate), RSCMSTA0 and RSCMSTAC finished with 0 errors**. That covers `serverInfo`, `putCert`, signed `create` / `update` / `info` / `get` / `docGet` / `mCreate` in every protection setting, and SAP's API layer with caching. Not yet run: RSCMSTAT (transport between repositories) and RSCMSTHS.
+## Signature verification and modes
 
-Findings from running them (all fixed): SAP expects the Content-Type returned exactly as it sent it; it sends multipart parts without `X-compId` (the empty-document form); `adminContRep` (CSADMIN) commands are not supported and answer 501.
+Every URL that SAP signs carries a `secKey`: a PKCS#7 signature over the signed parameter values, concatenated **in URL order**. Which parameters are signed per command comes from the "Sign" column of SAP's documentation.
 
-Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter values (the adapter accepts both), and the behaviour of real DMS/GOS flows beyond these reports (CV01N create and CV03N display of an original).
+- ZAKS Drive checks the signature against the **activated** certificate for the request's `contRep` and `authId`. Supported algorithms: DSA, RSA, ECDSA. Supported digests: MD5, RIPEMD-160, SHA-1 and SHA-2.
+- It also rejects URLs whose `expiration` has passed (plus `clockSkew`), and URLs whose `accessMode` (`r`, `c`, `u`, `d`) does not allow the operation.
+- Certificates SAP sends with `putCert` are stored **inactive** until an administrator activates them (`zaks-drive certs activate`); see [certificates](oac0-configuration.md#send-and-activate-the-certificate).
+- Verification takes about 0.26 ms per request for DSA and 0.035 ms for RSA-2048 (Go benchmarks in `internal/contentrepo`).
 
-## 8. Consistency, concurrency and recovery
+Signature modes, per content repository (`contentServer.repositories[].signature`):
 
-**Isolation from the REST API.** The content server folder (`<folder>` above, including `~certs/`) is **reserved**. The Document REST API cannot list, read, write or delete anything inside it, and cannot delete a parent folder that contains it. Requests return 404 for reads and 403 for writes. This applies to every configured content repository, even when the `contentrepo` interface is switched off. It is still cleaner to give the content server its own library or root path, and that is recommended for production.
+| Mode | Behaviour |
+|---|---|
+| `required` | Every command except `serverInfo` and `putCert` needs a valid secKey. Use with the OAC0 option "No signature" **unchecked** |
+| `optional` | Follows the document protection (`docProt`): a secKey is needed when the document's `docProt` covers the access mode (for `create`: the `docProt` URL parameter). Any secKey that is present is always verified |
+| `none` | Signatures are ignored. Tests only, or behind `allowedNetworks` |
+
+SharePoint is accessed by ZAKS Drive's Entra application; SAP decides who may do what, and SharePoint sees only the application's identity.
+
+## Storage layout
+
+```text
+<repository root>/<folder>/                e.g. SAP_DMS/ContentServer/Z1/
+  ~certs/<hash>.json                       certificates received via putCert (+ activation state)
+  <shard>/<docId>/<compId>                 one file per component
+  <shard>/<docId>/~sapdoc.json             Content-Type/charset/version per component, docProt, timestamps
+```
+
+- `<shard>` is the first byte (two hex characters) of the SHA-1 of the document ID. It spreads documents over 256 folders, because SharePoint struggles with more than about 5,000 items in one folder. To find a document's folder: `printf '%s' <docId> | sha1sum | cut -c1-2`. The layout is internal: SAP only ever uses document IDs.
+- A component's `Content-Type` is stored exactly as SAP sent it and returned unchanged by `info`, `docGet` and `get`. If SAP sent none, none is returned (SAP's report RSCMSTH2 compares it literally).
+- Characters SharePoint rejects in a `docId` or `compId` are stored as `%XX` (`scan:1.tif` becomes `scan%3A1.tif`) and translated back in every response.
+- SharePoint versioning applies: `update` and `append` create new versions of the component file.
+- Path limits: a typical SAP document path is about 95 characters, and the worst case about 345, against SharePoint's limit of 400 ([limits](../microsoft-365/sharepoint-configuration.md#sharepoint-limits-that-apply)).
+
+## Verified against a real SAP system
+
+On 2026-10-16, on S/4HANA 2025, with repository `signature: required` and pVersion 0047, the SAP test reports **RSCMSTH0, RSCMSTH1, RSCMSTH2 (docProt), RSCMSTH3 (mCreate), RSCMSTA0 and RSCMSTAC finished with 0 errors**. That covers `serverInfo`, `putCert`, signed `create` / `update` / `info` / `get` / `docGet` / `mCreate` in every protection setting, and SAP's API layer with caching. Not yet run: RSCMSTAT (transport between repositories) and RSCMSTHS.
+
+Findings from running them, all fixed: SAP expects the Content-Type returned exactly as it sent it; it sends multipart parts without `X-compId` (the empty-document form); `adminContRep` commands are not supported and answer 501.
+
+Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter values (ZAKS Drive accepts both), and real DMS, GOS and ArchiveLink scenarios beyond these reports (for example creating a document in CV01N and opening it in CV03N). This is not an SAP certification.
+
+## Consistency, concurrency and recovery
+
+**Isolation from the REST API.** The content server folder (the `folder` above, including `~certs/`) is **reserved**. The REST API cannot list, read, write or delete anything inside it, and cannot delete a parent folder that contains it: reads answer 404 and writes answer 403 ([`PATH_RESERVED`](../error-codes.md#path_reserved)). This applies to every configured content repository, even when the `contentrepo` interface is switched off. Giving the content server its own library or root path is still recommended for production.
 
 **Concurrent writes.**
-- *Within one adapter instance*, writes to the same document are serialised.
-- *Across instances*, the sidecar is written conditionally on its eTag (`If-Match`). If another instance changed it in the meantime, the adapter reloads it, re-applies its change and retries up to 12 times with jittered backoff, then answers 409.
-- SAP normally doesn't modify one document from two sessions at once (KPro/DMS locks it), so conflicts should be rare.
+- Within one instance, writes to the same document are serialised.
+- Across instances, the metadata file is written conditionally on its eTag (`If-Match`). If another instance changed it meanwhile, ZAKS Drive reloads it, re-applies its change and retries up to 12 times with jittered backoff, then answers 409 ([`CS_BUSY`](../error-codes.md#cs_busy)).
+- SAP normally does not modify one document from two sessions at once (KPro and DMS lock it), so conflicts should be rare.
 
 **Partial failures.** Component files and `~sapdoc.json` are separate SharePoint writes:
 
 | Situation | Behaviour |
 |---|---|
-| `create`: component stored, metadata write fails | The component is deleted again and SAP receives an error, so it can repeat the create. |
-| `create` (multipart) or `mCreate`: any component fails | The whole document is removed, as the spec requires. |
-| `update` / `append`: content stored, metadata write fails | SAP receives an error. The new content is live (the previous version stays in SharePoint version history); content type and timestamps may lag until the next write. |
-| `delete` component: file deleted, metadata write fails | Reported as success. The stale metadata entry is dropped automatically on the next read. |
-| `~sapdoc.json` missing but components present | The document is treated as **fully protected** (`docProt=rcud`): with `signature: optional`, every access needs a valid secKey. |
-| `~sapdoc.json` unreadable or corrupt | The document is **unavailable** (409 "administration data inaccessible") until the file is repaired or restored. Nothing is served with guessed protection. |
+| `create`: component stored, metadata write fails | The component is deleted again and SAP receives an error, so it can repeat the create |
+| `create` (multipart) or `mCreate`: any component fails | The whole document is removed, as the specification requires |
+| `update` / `append`: content stored, metadata write fails | SAP receives an error. The new content is live (the previous version stays in SharePoint version history); content type and timestamps may lag until the next write |
+| `delete` of a component: file deleted, metadata write fails | Reported as success; the stale metadata entry is dropped on the next read |
+| `~sapdoc.json` missing but components present | The document is treated as **fully protected** (`docProt=rcud`): with `signature: optional`, every access needs a valid secKey |
+| `~sapdoc.json` unreadable or corrupt | The document is **unavailable** (409, [`CS_META_UNREADABLE`](../error-codes.md#cs_meta_unreadable)) until the file is repaired or restored. Nothing is served with guessed protection |
 
-**Recovery.** Each SAP document is self-contained in its folder: the components plus `~sapdoc.json`. To recover, restore **the whole document folder together**, from the SharePoint recycle bin (93 days), from library version history, or from your Microsoft 365 backup. Restoring single files is possible, but restore the sidecar together with the components it describes.
+**Recovery.** Each SAP document is self-contained in its folder: the components plus `~sapdoc.json`. Restore **the whole document folder together** from the SharePoint recycle bin (93 days), from the library's version history, or from your Microsoft 365 backup. See [backup and recovery](../operations/backup-recovery.md).
 
-**People and other tools in the library.** Treat the content server folder as **owned by the adapter**:
-- Grant end users read access at most, or no access.
-- Files edited or moved by hand are not tracked. The adapter's metadata cache (60 s) and SAP's own references can then disagree with SharePoint.
-- Anyone with write access to the library can change documents directly, and can also edit `~certs/` records. Restrict write access to administrators.
+**People and other tools in the library.** Treat the content server folder as owned by ZAKS Drive: give users read access at most, and do not edit or move files there by hand. Hand edits are not tracked, the metadata cache (60 s) and SAP's references can then disagree with SharePoint, and anyone with write access can also change the `~certs/` records. Restrict write access to administrators.
 
-## 9. Troubleshooting
+## Logging and metrics
 
-| Symptom | Cause / fix |
-|---|---|
-| 401 `no certificate for authId` | Send the certificate from OAC0 again; check `certs list`. |
-| 401 `certificate ... is not activated` | Run `certs activate <contRep> <authId>`. |
-| 401 `secKey verification failed` | A different PSE signed than the one whose certificate was activated (e.g. after a PSE renewal). Send the certificate again and activate it. |
-| 401 `URL expired` | Clock difference between SAP and the VM. Check NTP, or raise `clockSkew`. |
-| 403 `document already exists` | SAP re-sent a create for an existing docId (expected behaviour per spec). |
-| 503 + `Retry-After` | SharePoint throttling. Lower `graph.maxConcurrency` or spread the load. |
-| CCMS shows `400 Bad Request ... part without X-compId` (older versions) | SAP sent a multipart part without the `X-compId` header (for example the marker for an empty document). | Fixed: the adapter now accepts the spec's zero-component form and an empty marker part, and falls back to `Content-Disposition` `name`, then to the default names `data`, `data1`, ... (logged as a warning with the part's headers). |
-| A SAP test (for example report RSCMSTH2) shows errors | | Every refused request is logged with its reason. After the test run: `docker compose -f deploy/docker-compose.yml logs --since 30m adapter \| grep 'request refused'`. Each line has the command, status, reason, contRep, docId and compId. For a summary by command and status: `... logs adapter \| grep -o '"command":"[^"]*","status":[0-9]*' \| sort \| uniq -c`. |
-| You need to see exactly what SAP sends | | Set `LOG_LEVEL=debug` in `deploy/.env`, run `up -d --force-recreate`, repeat the SAP action, then `docker compose -f deploy/docker-compose.yml logs adapter \| grep -E 'content server request\|multipart part'`. The signature (`secKey`) is redacted; request bodies are never logged. Set the level back to `info` afterwards. |
-| 409 `administration data ... unreadable` | `~sapdoc.json` of that document is corrupt. Restore the document folder (see section 8). |
-| 409 `concurrent modification; retry` | Repeated write conflicts on one document. SAP can repeat the action. |
-
-Every request is logged as JSON with `iface="contentrepo"` and `route="cs:<command>"`. Prometheus metrics use the same labels.
+Every request is logged as JSON with `iface="contentrepo"` and `route="cs:<command>"`; refused requests also log the error code, reason, `contRep`, `docId` and `compId` (never the `secKey`, and never file contents). Prometheus metrics use the same labels; see [monitoring](../operations/monitoring.md).
