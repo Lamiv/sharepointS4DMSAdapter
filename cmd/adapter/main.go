@@ -42,8 +42,9 @@ import (
 var version = "dev"
 
 const (
-	productName = "ZAKS Drive"
-	productDesc = "Open-Source Enterprise Content Gateway"
+	productName    = "ZAKS Drive"
+	productDesc    = "Open-Source Enterprise Content Gateway"
+	productSummary = "Self-hosted content gateway connecting SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business."
 )
 
 func exeName() string {
@@ -61,18 +62,19 @@ func printVersion() {
 func usage(w io.Writer) {
 	x := exeName()
 	fmt.Fprintf(w, `%s %s - %s
+%s
 
 Usage:
-  %[4]s [-config file]                      run the server (default; the command "serve" does the same)
-  %[4]s check                               verify every access the server needs: PASS / FAIL / SKIP, with the fix
-  %[4]s certs list|activate|deactivate ...  manage SAP certificates on a running server
-  %[4]s errors                              print the error-code catalogue as Markdown
-  %[4]s version                             print the version
-  %[4]s -healthcheck                        probe the local /healthz endpoint (Docker HEALTHCHECK)
+  %[5]s [-config file]                      run the server (default; the command "serve" does the same)
+  %[5]s check                               verify every access the server needs: PASS / FAIL / SKIP, with the fix
+  %[5]s certs list|activate|deactivate ...  manage SAP certificates on a running server
+  %[5]s errors                              print the error-code catalogue as Markdown
+  %[5]s version                             print the version
+  %[5]s -healthcheck                        probe the local /healthz endpoint (Docker HEALTHCHECK)
 
 Configuration: -config <file> or the CONFIG_FILE variable (default in Docker: /etc/adapter/config.yaml).
 Documentation: README.md, docs/index.md and docs/error-codes.md in the repository.
-`, productName, version, productDesc, x)
+`, productName, version, productDesc, productSummary, x)
 }
 
 func main() {

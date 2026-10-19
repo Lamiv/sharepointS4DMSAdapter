@@ -23,7 +23,7 @@ ENTRYPOINT ["/graphmock"]
 # ZAKS Drive (default target)
 FROM gcr.io/distroless/static-debian12:nonroot AS adapter
 LABEL org.opencontainers.image.title="ZAKS Drive" \
-      org.opencontainers.image.description="Open-Source Enterprise Content Gateway: connects SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business through an SAP-compatible Content Server interface and a REST API" \
+      org.opencontainers.image.description="Self-hosted content gateway connecting SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business." \
       org.opencontainers.image.source="https://github.com/Lamiv/sharepointS4DMSAdapter" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=build /out/zaks-drive /out/adapter /
