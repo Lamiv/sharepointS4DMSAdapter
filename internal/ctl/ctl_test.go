@@ -1,7 +1,9 @@
 package ctl
 
 import (
+	"fmt"
 	"reflect"
+	"regexp"
 
 	"errors"
 	"gopkg.in/yaml.v3"
@@ -487,5 +489,74 @@ func TestReleaseComposeMatchesDevelopmentCompose(t *testing.T) {
 	}
 	if _, ok := rel["build"]; ok {
 		t.Error("the release compose file must not build from source")
+	}
+}
+
+// docs/cli.md must mention everything the command offers, so the guide cannot fall behind.
+func TestCLIGuideDocumentsEverything(t *testing.T) {
+	b, err := os.ReadFile("../../docs/cli.md")
+	must(t, err)
+	doc := string(b)
+	app := &App{Version: "x"}
+	for _, c := range app.commands() {
+		if !strings.Contains(doc, "zaks-drive "+c.name) && !strings.Contains(doc, "`"+c.name+"`") && !strings.Contains(doc, "`"+c.name+",") {
+			t.Errorf("docs/cli.md does not document the command %q", c.name)
+		}
+	}
+	for _, di := range Diagnostics {
+		if !strings.Contains(doc, "`"+di.ID+"`") {
+			t.Errorf("docs/cli.md does not document the diagnostic %q", di.ID)
+		}
+	}
+	for code, name := range map[int]string{ExitOK: "success", ExitFail: "failed", ExitUsage: "bad command line", ExitPrereq: "Docker", ExitNoDeployment: "no deployment", ExitUnhealthy: "not ready", ExitVerify: "verification", ExitDeclined: "declined"} {
+		if !strings.Contains(doc, fmt.Sprintf("| %d | ", code)) {
+			t.Errorf("docs/cli.md does not list exit code %d (%s)", code, name)
+		}
+	}
+	for _, v := range []string{"ZAKS_DRIVE_DIR", "ZAKS_DRIVE_SHARE", "ZAKS_DRIVE_VERSION", "ZAKS_DRIVE_CLIENT_SECRET", "ZAKS_DRIVE_BASE_IMAGE", "ZAKS_DRIVE_RELEASE_BASE_URL"} {
+		if !strings.Contains(doc, "`"+v+"`") {
+			t.Errorf("docs/cli.md does not document %s", v)
+		}
+	}
+	// And the environment variables the code reads are all in that list.
+	for _, f := range []string{"app.go", "deployment.go", "payload.go", "release.go", "setup.go", "lifecycle.go", "docker.go"} {
+		src, err := os.ReadFile(f)
+		must(t, err)
+		for _, m := range regexp.MustCompile(`"(ZAKS_DRIVE_[A-Z_]+)"`).FindAllStringSubmatch(string(src), -1) {
+			if !strings.Contains(doc, "`"+m[1]+"`") {
+				t.Errorf("%s reads %s, which docs/cli.md does not document", f, m[1])
+			}
+		}
+	}
+}
+
+// Security review as a test: the command may start only docker (and stty, to hide a typed secret),
+// never through a shell, and only runner.go and terminal.go may use os/exec.
+func TestOnlyDockerAndSttyCanBeStarted(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	must(t, err)
+	progRe := regexp.MustCompile(`(?:Runner\.Run|\.Run)\(ctx, "([^"]+)"|exec\.Command(?:Context)?\((?:ctx, )?"([^"]+)"`)
+	for _, en := range entries {
+		name := en.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(name)
+		must(t, err)
+		src := string(b)
+		if strings.Contains(src, `"os/exec"`) && name != "runner.go" && name != "terminal.go" {
+			t.Errorf("%s imports os/exec; only runner.go and terminal.go may start processes", name)
+		}
+		for _, m := range progRe.FindAllStringSubmatch(src, -1) {
+			prog := m[1] + m[2]
+			if prog != "docker" && prog != "stty" {
+				t.Errorf("%s starts %q; only docker and stty are allowed", name, prog)
+			}
+		}
+		for _, bad := range []string{`"sh"`, `"bash"`, `"-c"`, `"cmd"`, `"sudo"`, `"su"`} {
+			if strings.Contains(src, "Run(ctx, "+bad) || strings.Contains(src, "exec.Command("+bad) {
+				t.Errorf("%s runs %s: no shell and no privilege escalation", name, bad)
+			}
+		}
 	}
 }

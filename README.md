@@ -100,16 +100,35 @@ curl -sS 'http://localhost:8090/ContentServer/ContentServer.dll?serverInfo&pVers
 
 More: [quickstart](docs/quickstart.md).
 
-## Install for real
+## Install for real (Linux)
 
-1. Register a Microsoft Entra app and grant it access to one SharePoint site: [Entra](docs/microsoft-365/entra-app-registration.md), [permissions](docs/microsoft-365/graph-permissions.md).
-2. Copy `deploy/.env.example` to `deploy/.env` and `deploy/config.example.yaml` to `deploy/config.yaml`; set the tenant, client, secret and SharePoint location.
-3. Start and verify:
+Prerequisites: Docker Engine with the Compose plugin, and a [Microsoft Entra app](docs/microsoft-365/entra-app-registration.md) with [access to one SharePoint site](docs/microsoft-365/graph-permissions.md).
+
+```bash
+curl -fsSLO https://github.com/Lamiv/zaks-drive/releases/download/v0.1.0-beta.1/install.sh
+less install.sh                          # read it first
+sh install.sh --version 0.1.0-beta.1     # verifies the SHA-256 checksum before anything runs; no sudo, no Docker install
+
+zaks-drive setup                         # asks for tenant, client, secret (hidden), SharePoint site, SAP repositories
+zaks-drive start                         # waits until it is ready
+zaks-drive doctor                        # diagnoses the installation
+zaks-drive check                         # tests SharePoint access (contacts Microsoft)
+```
+
+Day to day: `zaks-drive status | logs | stop | restart | update | rollback | support bundle`. Everything is in the [zaks-drive command guide](docs/cli.md). The version above is an example: the first release has to be published by the maintainer, so until then build from source (below).
+
+<details>
+<summary>From a source checkout, without the command</summary>
+
+1. Copy `deploy/.env.example` to `deploy/.env` and `deploy/config.example.yaml` to `deploy/config.yaml`; set the tenant, client, secret and SharePoint location.
+2. Start and verify:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive check
 ```
+
+</details>
 
 Full guide: [installation](docs/installation.md), [configuration reference](docs/configuration.md).
 
@@ -164,7 +183,8 @@ Upgrading from the earlier "SharePoint Adapter" name keeps configuration, ports,
 ## Repository layout
 
 ```text
-cmd/adapter        the zaks-drive binary (server, check, certs, errors, version)
+cmd/zaks-drive     the management command (setup, start, stop, status, logs, doctor, update, ...)
+cmd/adapter        the server binary, zaks-drive-server (serve, check, certs, errors, version)
 cmd/graphmock      Microsoft Graph emulator for tests and demos
 internal/          packages: config, auth, graph, storage, transfer, restapi, contentrepo, apperr, ...
 deploy/            Dockerfile target, Compose file, .env and config examples

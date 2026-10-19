@@ -60,6 +60,10 @@ type App struct {
 	PollInterval time.Duration
 	// DiskFree overrides the free-space lookup (tests).
 	DiskFree func(path string) (int64, error)
+	// ReleaseBase is where releases are downloaded from (default GitHub); tests and mirrors set it.
+	ReleaseBase string
+	// DownloadHTTP is the client for release downloads (default: a long timeout).
+	DownloadHTTP *http.Client
 	// PortBusy overrides the host port probe (tests); the default tries to listen on the port.
 	PortBusy func(host string, port int) bool
 

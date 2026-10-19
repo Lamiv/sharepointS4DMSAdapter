@@ -94,7 +94,7 @@ normalize_version() { # strips a leading v and validates SemVer
 
 resolve_version() { # prints the version to install
 	if [ "$1" = latest ]; then
-		rv_url=$(fetch_final_url "$2/latest") || die 5 "could not resolve the latest release from $2/latest"
+		rv_url=$(fetch_final_url "$2/latest") || die 5 "could not resolve the latest release from $2/latest. GitHub's 'latest' never points at a pre-release (such as 0.1.0-beta.1); pin the version with --version."
 		rv_tag=${rv_url##*/}
 		normalize_version "$rv_tag"
 	else

@@ -12,6 +12,22 @@ The project is named **ZAKS Drive** (with a space in prose and headings; `zaks-d
 
 Tagline: *Open-Source Enterprise Content Gateway*.
 
+## Executable names
+
+The project has two programs. They were one until the management command was added, so the name `zaks-drive` changed meaning on the host. The plan, so that nothing existing breaks:
+
+| Name | Where | What it is | Status |
+|---|---|---|---|
+| `zaks-drive` | on the **host** (`<prefix>/bin`) | the management command: setup, start, stop, status, logs, doctor, update (`cmd/zaks-drive`, [docs/cli.md](../cli.md)) | new; the public command name |
+| `zaks-drive-server` | **inside the image** | the server (`cmd/adapter`); the image's `ENTRYPOINT` | canonical server name from the release that introduces the command |
+| `/zaks-drive` | inside the image | compatibility name of the **server** | kept: `docker compose exec adapter /zaks-drive check` still works |
+| `/adapter` | inside the image | compatibility name of the server (pre-rename) | kept: old health checks and scripts still work |
+
+- The two meanings never meet: the host has no server binary on its `PATH`, and the image has no management command. Both help texts say which program they are.
+- `docker-compose.yml` health checks now call `/zaks-drive-server -healthcheck`; images built before the change keep working with their own compose file.
+- The image carries three copies of the server binary under these names (it grew from about 38 MB to about 54 MB). The two compatibility names are planned for removal in a later minor release, **not before `1.0`**; the CHANGELOG will say when, and the removal will be announced one release ahead.
+- A server released together with a command carries the same version; see the [compatibility policy](../cli.md#compatibility-policy).
+
 ## Changed
 
 | Item | Now | Before |

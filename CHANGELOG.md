@@ -6,6 +6,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
+- **`zaks-drive` management command** (`cmd/zaks-drive`): `setup` (interactive or non-interactive), `config validate`, `start`, `stop`, `restart`, `status`, `logs`, `doctor` (19 documented diagnostics), `check`, `update`, `rollback`, `support bundle`. See [docs/cli.md](docs/cli.md). The server is now the separate binary `zaks-drive-server`; inside the image `/zaks-drive` and `/adapter` remain as compatibility names of the server.
+- Linux release bundles (amd64, arm64) built reproducibly by `scripts/build-release.sh`, a verifying installer `scripts/install.sh`, offline installer tests (`scripts/test_install.sh`), and a manual release workflow with provenance attestation (draft release only).
+- `BIND_ADDRESS` in `.env` selects the host address of the REST and SAP ports (default `0.0.0.0`, unchanged behaviour).
+
 - ZAKS Drive branding: `zaks-drive` binary and image, `version` command, usage text, start-up banner, OCI labels. See [branding and compatibility](docs/development/branding-and-compatibility.md).
 - Error codes with cause and fix on every error, a generated [error catalogue](docs/error-codes.md), and `zaks-drive errors`.
 - SharePoint location (`SHAREPOINT_SITE_URL`, `SHAREPOINT_LIBRARY`, `SHAREPOINT_ROOT_PATH`) read from `.env`; all configuration problems are reported together.

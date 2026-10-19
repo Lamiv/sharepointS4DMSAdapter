@@ -21,14 +21,17 @@ func readSecretFromTerminal(prompt string) (string, error) {
 	if stdinIsTerminal() {
 		off := exec.Command("stty", "-echo")
 		off.Stdin = os.Stdin
-		if err := off.Run(); err == nil {
-			defer func() {
-				on := exec.Command("stty", "echo")
-				on.Stdin = os.Stdin
-				_ = on.Run()
-				fmt.Fprintln(os.Stderr)
-			}()
+		if err := off.Run(); err != nil {
+			// Never read a secret while it would be echoed on the screen.
+			fmt.Fprintln(os.Stderr)
+			return "", fmt.Errorf("cannot turn off terminal echo (is stty available?); use --client-secret-file instead")
 		}
+		defer func() {
+			on := exec.Command("stty", "echo")
+			on.Stdin = os.Stdin
+			_ = on.Run()
+			fmt.Fprintln(os.Stderr)
+		}()
 	}
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {

@@ -21,6 +21,7 @@ This page states what ZAKS Drive does for security, what depends on how you depl
 - **Input limits:** maximum upload size, SharePoint name and path validation before any Graph call, an in-flight request cap (`maxInFlight`) returning 503 beyond it.
 - **Logging policy:** see [Logging policy](#logging-policy) below. Request paths and file names are logged, so do not put sensitive data in file names.
 - **Container hardening in the Compose file:** distroless non-root image, read-only root filesystem, `no-new-privileges`, memory limit, admin port on localhost.
+- **Management command:** the host-side `zaks-drive` command is a privileged tool with its own controls (no shell, only the deployment's containers, no deletions, verified downloads, sanitized output, allowlisted support bundles): [docs/cli.md](../cli.md#security-considerations).
 - **Least-privilege Graph option:** `Sites.Selected` with a per-site grant ([Graph permissions](../microsoft-365/graph-permissions.md)).
 
 ## Logging policy

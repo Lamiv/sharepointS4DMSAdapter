@@ -31,6 +31,8 @@ Terminate TLS in a reverse proxy, or set `server.tlsCertFile` and `server.tlsKey
 
 ## Upgrades
 
+With the [`zaks-drive` command](../cli.md#updates-and-rollback) (release installs): `zaks-drive update --version <version>` verifies the release checksum, builds the image, restarts, checks readiness and returns to the previous version if the new one does not become ready; `zaks-drive rollback` goes back by hand. Configuration and data are not touched. From a source checkout:
+
 ```bash
 cd /opt/zaks-drive
 git fetch --tags && git checkout v<version>      # pin a release; avoid tracking a moving branch in production
