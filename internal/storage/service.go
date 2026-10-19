@@ -15,11 +15,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/transfer"
@@ -123,17 +125,58 @@ func CleanPath(p string) (string, error) {
 }
 
 func ValidName(name string) error {
+	const bad = "\"*:<>?/\\|\x00"
 	switch {
 	case name == "" || name == "." || name == "..":
-		return fmt.Errorf("%w: invalid name %q", ErrInvalid, name)
+		return apperr.New(apperr.NameInvalid, "the name %q is not allowed (empty, \".\" and \"..\" are reserved)", name).Wrap(ErrInvalid)
 	case len(name) > 255:
-		return fmt.Errorf("%w: name too long", ErrInvalid)
-	case strings.ContainsAny(name, "\"*:<>?/\\|\x00"):
-		return fmt.Errorf("%w: name %q contains invalid characters", ErrInvalid, name)
-	case strings.HasSuffix(name, ".") || strings.HasPrefix(name, " ") || strings.HasSuffix(name, " "):
-		return fmt.Errorf("%w: name %q has leading/trailing space or trailing dot", ErrInvalid, name)
+		return apperr.New(apperr.NameTooLong, "the name is %d characters long; the limit is 255 (%.40q...)", len(name), name).Wrap(ErrInvalid)
+	case strings.ContainsAny(name, bad):
+		var found []string
+		for _, r := range name {
+			if strings.ContainsRune(bad, r) && !strings.Contains(strings.Join(found, ""), string(r)) {
+				found = append(found, string(r))
+			}
+		}
+		return apperr.New(apperr.NameInvalid, "the name %q contains characters SharePoint does not allow: %s", name, strings.Join(found, " ")).Wrap(ErrInvalid)
+	case strings.HasSuffix(name, "."):
+		return apperr.New(apperr.NameInvalid, "the name %q ends with a dot, which SharePoint does not allow", name).Wrap(ErrInvalid)
+	case strings.HasPrefix(name, " ") || strings.HasSuffix(name, " "):
+		return apperr.New(apperr.NameInvalid, "the name %q starts or ends with a space, which SharePoint does not allow", name).Wrap(ErrInvalid)
 	}
 	return nil
+}
+
+// maxSharePointPath is SharePoint's limit for the decoded path after the
+// domain, including site, library and all folders.
+const maxSharePointPath = 400
+
+// checkPathLength rejects a path SharePoint would refuse, with a clear
+// message, before any bytes are sent. rel is relative to the repository root.
+func (r *Repository) checkPathLength(rel string) error {
+	prefix := 40 // typical /sites/<site>/<library> when the URL is unknown
+	if u, err := url.Parse(r.WebURL); err == nil && u.Path != "" {
+		prefix = len(u.Path)
+	}
+	total := prefix + 1 + len(strings.Trim(r.RootPath+"/"+rel, "/"))
+	if total > maxSharePointPath {
+		return apperr.New(apperr.PathTooLong, "the path would be about %d characters; SharePoint allows %d (library path %d + root folder %q + %q)",
+			total, maxSharePointPath, prefix, r.RootPath, rel).Wrap(ErrInvalid)
+	}
+	return nil
+}
+
+// notFound builds the coded "not found" error.
+func notFound(format string, args ...any) error {
+	return apperr.New(apperr.DocNotFound, format, args...).Wrap(ErrNotFound)
+}
+
+func readOnly(r *Repository) error {
+	return apperr.New(apperr.RepoReadOnly, "repository %q is read-only (readOnly: true in config.yaml)", r.ID).Wrap(ErrReadOnly)
+}
+
+func reserved(r *Repository, rel string) error {
+	return apperr.New(apperr.PathReserved, "%q is inside the SAP content server folder of repository %q", rel, r.ID).Wrap(ErrReserved)
 }
 
 type Service struct {
@@ -198,7 +241,7 @@ func (s *Service) Repository(id string) (*Repository, error) {
 	if r, ok := s.repos[id]; ok {
 		return r, nil
 	}
-	return nil, fmt.Errorf("%w: repository %q", ErrNotFound, id)
+	return nil, apperr.New(apperr.RepoNotFound, "repository %q does not exist or this credential may not use it", id).Wrap(ErrNotFound)
 }
 
 func (s *Service) Repositories() []*Repository {
@@ -212,7 +255,7 @@ func (s *Service) Repositories() []*Repository {
 // mapErr converts Graph "not found" into ErrNotFound for callers.
 func mapErr(err error) error {
 	if graph.IsNotFound(err) {
-		return fmt.Errorf("%w: %v", ErrNotFound, err)
+		return apperr.New(apperr.DocNotFound, "SharePoint reports that the item or folder does not exist (%v)", err).Wrap(ErrNotFound)
 	}
 	return err
 }
@@ -224,14 +267,14 @@ func (s *Service) Get(ctx context.Context, repo *Repository, id string) (*graph.
 		if repo.visible(it) {
 			return it, nil
 		}
-		return nil, ErrNotFound
+		return nil, notFound("item %s is not inside repository %q", id, repo.ID)
 	}
 	it, err := s.g.GetItem(ctx, repo.DriveID, id)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	if !repo.visible(it) {
-		return nil, ErrNotFound
+		return nil, notFound("item %s exists in the library but is not inside repository %q (root folder %q)", id, repo.ID, repo.RootPath)
 	}
 	s.cache.put(repo.DriveID, it)
 	return it, nil
@@ -249,7 +292,7 @@ func (s *Service) GetByPath(ctx context.Context, repo *Repository, rel string) (
 		return nil, err
 	}
 	if clean, _ := CleanPath(rel); repo.hidden(clean) {
-		return nil, ErrNotFound
+		return nil, notFound("%q does not exist in repository %q", rel, repo.ID)
 	}
 	it, err := s.g.GetItemByPath(ctx, repo.DriveID, p)
 	if err != nil {
@@ -288,7 +331,7 @@ func (s *Service) decodeCursor(repo *Repository, scope, c string) (string, error
 	if c == "" {
 		return "", nil
 	}
-	bad := fmt.Errorf("%w: invalid or expired cursor", ErrInvalid)
+	bad := apperr.New(apperr.CursorInvalid, "the cursor was not issued by this server for this listing").Wrap(ErrInvalid)
 	linkPart, macPart, ok := strings.Cut(c, ".")
 	if !ok {
 		return "", bad
@@ -320,7 +363,7 @@ func (s *Service) List(ctx context.Context, repo *Repository, rel string, top in
 		return nil, err
 	}
 	if clean, _ := CleanPath(rel); repo.hidden(clean) {
-		return nil, ErrNotFound
+		return nil, notFound("no such item in repository %q", repo.ID)
 	}
 	scope := "list:" + p
 	next, err := s.decodeCursor(repo, scope, cursor)
@@ -336,7 +379,7 @@ func (s *Service) List(ctx context.Context, repo *Repository, rel string, top in
 
 func (s *Service) Search(ctx context.Context, repo *Repository, query string, top int, cursor string) (*Page, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("%w: empty query", ErrInvalid)
+		return nil, apperr.New(apperr.QueryEmpty, "the search text `q` is empty").Wrap(ErrInvalid)
 	}
 	scope := "search:" + query
 	next, err := s.decodeCursor(repo, scope, cursor)
@@ -366,7 +409,7 @@ type UploadRequest struct {
 
 func (s *Service) Upload(ctx context.Context, repo *Repository, req UploadRequest) (*graph.DriveItem, error) {
 	if repo.ReadOnly {
-		return nil, ErrReadOnly
+		return nil, readOnly(repo)
 	}
 	if err := ValidName(req.Name); err != nil {
 		return nil, err
@@ -376,7 +419,10 @@ func (s *Service) Upload(ctx context.Context, repo *Repository, req UploadReques
 		return nil, err
 	}
 	if clean, _ := CleanPath(req.Folder); repo.hidden(strings.TrimLeft(clean+"/"+req.Name, "/")) {
-		return nil, ErrReserved
+		return nil, reserved(repo, strings.TrimLeft(clean+"/"+req.Name, "/"))
+	}
+	if err := repo.checkPathLength(strings.Trim(req.Folder, "/") + "/" + req.Name); err != nil {
+		return nil, err
 	}
 	if req.Conflict == "" {
 		req.Conflict = graph.ConflictRename
@@ -393,14 +439,14 @@ func (s *Service) Upload(ctx context.Context, repo *Repository, req UploadReques
 // Replace uploads new content for an existing item (new SharePoint version).
 func (s *Service) Replace(ctx context.Context, repo *Repository, id, ifMatch string, body io.Reader, size int64) (*graph.DriveItem, error) {
 	if repo.ReadOnly {
-		return nil, ErrReadOnly
+		return nil, readOnly(repo)
 	}
 	cur, err := s.Get(ctx, repo, id)
 	if err != nil {
 		return nil, err
 	}
 	if cur.Folder != nil {
-		return nil, fmt.Errorf("%w: item is a folder", ErrInvalid)
+		return nil, apperr.New(apperr.ItemIsFolder, "item %s is a folder", id).Wrap(ErrInvalid)
 	}
 	s.cache.drop(repo.DriveID, id)
 	it, err := s.eng.Upload(ctx, transfer.Target{Drive: repo.DriveID, ItemID: id, IfMatch: ifMatch}, body, size)
@@ -412,14 +458,14 @@ func (s *Service) Replace(ctx context.Context, repo *Repository, id, ifMatch str
 
 func (s *Service) Delete(ctx context.Context, repo *Repository, id, ifMatch string) error {
 	if repo.ReadOnly {
-		return ErrReadOnly
+		return readOnly(repo)
 	}
 	it, err := s.Get(ctx, repo, id)
 	if err != nil {
 		return err
 	}
 	if rel, _ := repo.Rel(it.Path()); it.Folder != nil && repo.containsReserved(rel) {
-		return ErrReserved
+		return reserved(repo, rel)
 	}
 	s.cache.drop(repo.DriveID, id)
 	return mapErr(s.g.Delete(ctx, repo.DriveID, id, ifMatch))
@@ -427,17 +473,17 @@ func (s *Service) Delete(ctx context.Context, repo *Repository, id, ifMatch stri
 
 func (s *Service) CreateFolder(ctx context.Context, repo *Repository, rel string) (*graph.DriveItem, error) {
 	if repo.ReadOnly {
-		return nil, ErrReadOnly
+		return nil, readOnly(repo)
 	}
 	p, err := repo.abs(rel)
 	if err != nil {
 		return nil, err
 	}
 	if p == "" {
-		return nil, fmt.Errorf("%w: folder path required", ErrInvalid)
+		return nil, apperr.New(apperr.FolderPathRequired, "the folder path is empty").Wrap(ErrInvalid)
 	}
 	if clean, _ := CleanPath(rel); repo.hidden(clean) {
-		return nil, ErrReserved
+		return nil, reserved(repo, rel)
 	}
 	it, err := s.g.CreateFolderPath(ctx, repo.DriveID, p)
 	return it, mapErr(err)
@@ -448,7 +494,7 @@ func (s *Service) CreateFolder(ctx context.Context, repo *Repository, rel string
 // known to exist (parentKnown), which keeps hot paths to one Graph request.
 func (s *Service) EnsureFolder(ctx context.Context, repo *Repository, rel string, parentKnown bool) error {
 	if repo.ReadOnly {
-		return ErrReadOnly
+		return readOnly(repo)
 	}
 	p, err := repo.abs(rel)
 	if err != nil {

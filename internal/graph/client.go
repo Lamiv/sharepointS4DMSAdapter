@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/observability"
 )
@@ -148,6 +149,11 @@ func (c *Client) do(ctx context.Context, req request) (*http.Response, error) {
 		case err != nil:
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+			// A token refused by Entra ID (wrong secret, unknown app) will not
+			// succeed on retry; fail at once with the explanation.
+			if ae, ok := apperr.As(err); ok && ae.Code == apperr.TokenFailed && ae.Cause == nil {
+				return nil, err
 			}
 			lastErr, reason = err, "network"
 		case resp.StatusCode < 400:

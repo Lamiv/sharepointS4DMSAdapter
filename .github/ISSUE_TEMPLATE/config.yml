@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Look the error code up first
+    url: https://github.com/Lamiv/zaks-drive/blob/main/docs/error-codes.md
+    about: Every error has a code, a reason and a fix.
+  - name: Security vulnerability
+    url: https://github.com/Lamiv/zaks-drive/security/advisories/new
+    about: Please report security problems privately.

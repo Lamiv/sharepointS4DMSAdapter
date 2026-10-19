@@ -2,8 +2,8 @@
 // access the adapter relies on, and reports for each check the access
 // required, what was tested, and PASS / FAIL (with cause and fix) / SKIP.
 //
-// It is run with `adapter check` (e.g. inside the container:
-// `docker compose exec adapter /adapter check`). Test files are created in
+// It is run with `zaks-drive check` (e.g. inside the container:
+// `docker compose exec adapter /zaks-drive check`). Test files are created in
 // each repository's root folder and removed again; the secret is never
 // printed.
 package accesscheck
@@ -89,6 +89,10 @@ func (r *reporter) summary() int {
 
 // hint turns a Graph error into the most likely fix.
 func hint(err error) string {
+	// Errors that already carry a code (token, library, site, Graph) bring their own fix.
+	if ae := graph.Classify(err); ae != nil {
+		return ae.Fix()
+	}
 	switch graph.StatusOf(err) {
 	case http.StatusUnauthorized:
 		return "Graph rejected the token: the app has no usable APPLICATION permission or admin consent is missing (see the permission check)"
@@ -119,8 +123,7 @@ func Run(ctx context.Context, cfg config.Config, gc *graph.Client, tokens auth.T
 	const tokTest = "client-credentials token request to Microsoft Entra ID"
 	token, err := tokens.Token(ctx)
 	if err != nil {
-		rep.add("Access token from Microsoft Entra ID", tokReq, tokTest, fail, err.Error(),
-			"invalid_client: use the secret VALUE (not the ID) and check it has not expired; otherwise check tenant and client IDs")
+		rep.add("Access token from Microsoft Entra ID", tokReq, tokTest, fail, err.Error(), hint(err))
 		rep.skip("Application permission in the token", "a Graph APPLICATION permission with admin consent", "token 'roles' claim", "token")
 		for _, r := range cfg.Repositories {
 			rep.skip("["+r.ID+"] all access checks", "see below", "-", "token")
@@ -200,7 +203,7 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 		if err == nil {
 			err = errors.New("no drive returned")
 		}
-		rep.add(p+"Find the library", resReq, "resolve "+loc, fail, err.Error(), hint(err)+" (for 'library not found', set driveName to a name in the message)")
+		rep.add(p+"Find the library", resReq, "resolve "+loc, fail, err.Error(), hint(err))
 		for _, n := range []string{"Write: upload a small file", "Read: download and compare", "Resumable upload session (files over 4 MiB)", "Version history", "Delete the test file", "Clean up earlier test files"} {
 			rep.skip(p+n, "access to the library", "-", "find the library")
 		}

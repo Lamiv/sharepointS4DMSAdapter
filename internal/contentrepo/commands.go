@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/observability"
 	"sharepointadapter/internal/storage"
@@ -136,7 +137,7 @@ func compPartHeader(c *component, pv string, bodyLen int64) textproto.MIMEHeader
 func (s *Server) loadDoc(r *http.Request, cr *contentRep, docID string) (*document, error) {
 	d, err := s.docs.load(r.Context(), cr, docID)
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "document %s not found", docID)
+		return nil, apperr.New(apperr.CSDocNotFound, "document %q does not exist in content repository %s", docID, cr.id).Wrap(storage.ErrNotFound)
 	}
 	return d, err
 }
@@ -169,7 +170,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request, p params, cr *cont
 	if id := p.get("compId"); id != "" {
 		c := d.comp(id)
 		if c == nil {
-			return errStatus(http.StatusNotFound, "component %s not found", id)
+			return apperr.New(apperr.CSCompNotFound, "document %q has no component %q (components: %s)", d.id, id, d.compNames())
 		}
 		comps = []*component{c}
 	}
@@ -224,7 +225,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, p params, cr *conte
 		c = d.comp("data1")
 	}
 	if c == nil {
-		return errStatus(http.StatusNotFound, "component not found")
+		return apperr.New(apperr.CSCompNotFound, "document %q has no component %q (components: %s); without compId the component `data`, else `data1`, is returned", d.id, p.get("compId"), d.compNames())
 	}
 	from, to, err := offsets(p, c.item.Size)
 	if err != nil {
@@ -276,12 +277,12 @@ func offsets(p params, size int64) (from, to int64, err error) {
 	from, to = 0, -1
 	if v := p.get("fromOffset"); v != "" {
 		if from, err = strconv.ParseInt(v, 10, 64); err != nil || from < 0 {
-			return 0, 0, errStatus(http.StatusBadRequest, "invalid fromOffset")
+			return 0, 0, apperr.New(apperr.CSOffsetInvalid, "fromOffset %q is not a number >= 0", v)
 		}
 	}
 	if v := p.get("toOffset"); v != "" {
 		if to, err = strconv.ParseInt(v, 10, 64); err != nil || to < -1 {
-			return 0, 0, errStatus(http.StatusBadRequest, "invalid toOffset")
+			return 0, 0, apperr.New(apperr.CSOffsetInvalid, "toOffset %q is not a number >= -1", v)
 		}
 	}
 	if size == 0 {
@@ -291,7 +292,7 @@ func offsets(p params, size int64) (from, to int64, err error) {
 		to = size - 1
 	}
 	if from >= size || from > to {
-		return 0, 0, errStatus(http.StatusBadRequest, "offset range outside component (size %d)", size)
+		return 0, 0, apperr.New(apperr.CSOffsetInvalid, "the range %d-%d is outside the component (size %d bytes)", from, to, size)
 	}
 	return from, to, nil
 }
@@ -353,7 +354,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, p params, cr *co
 	case http.MethodPost:
 		return s.createPost(w, r, p, cr)
 	}
-	return errStatus(http.StatusMethodNotAllowed, "create requires PUT or POST")
+	return apperr.New(apperr.CSMethodNotAllowed, "create needs PUT (one component) or POST multipart/form-data, not %s", r.Method)
 }
 
 func newDocMeta(cr *contentRep, docID, docProt string, now time.Time) *docMeta {
@@ -504,7 +505,7 @@ func (s *Server) newPartReader(r *http.Request, cmd string) (*partReader, error)
 	mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	boundary := params["boundary"]
 	if err != nil || !strings.HasPrefix(mt, "multipart/") || boundary == "" {
-		return nil, errStatus(http.StatusBadRequest, "multipart/form-data body required")
+		return nil, apperr.New(apperr.CSMultipartRequired, "Content-Type is %q; the %s command needs multipart/form-data with a boundary", r.Header.Get("Content-Type"), cmd)
 	}
 	br := bufio.NewReaderSize(r.Body, 64<<10)
 	head, _ := br.Peek(2*len(boundary) + 16)
@@ -539,7 +540,7 @@ func (pr *partReader) next() (partInfo, error) {
 			return partInfo{}, io.EOF
 		}
 		if err != nil {
-			return partInfo{}, errStatus(http.StatusBadRequest, "invalid multipart body: %v", err)
+			return partInfo{}, apperr.New(apperr.CSMultipartInvalid, "the multipart body of %s could not be parsed: %v", pr.cmd, err)
 		}
 		pi := readPartInfo(part)
 		pi.body = part
@@ -590,7 +591,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 	docID := p.get("docId")
 	defer s.docs.lock(cr, docID)()
 	if _, err := s.docs.load(r.Context(), cr, docID); err == nil {
-		return errDocExists
+		return docExists(cr, docID)
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return err
 	}
@@ -619,7 +620,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 			return rollback(err)
 		}
 		if meta.Components[pi.compID] != nil {
-			return rollback(errStatus(http.StatusBadRequest, "duplicate component %s", pi.compID))
+			return rollback(apperr.New(apperr.CSCompDuplicate, "component %q appears twice in the request", pi.compID))
 		}
 		if _, err := s.docs.putComponent(r.Context(), cr, docID, pi.compID, pi.body, pi.size, true); err != nil {
 			return rollback(err)
@@ -694,7 +695,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 			return err
 		}
 		if pi.docID == "" {
-			return errStatus(http.StatusBadRequest, "mCreate parts need X-docId")
+			return apperr.New(apperr.CSMCreateDocIDMissing, "a part of the mCreate request has no X-docId header (component %q)", pi.compID)
 		}
 		if cur == nil || cur.docID != pi.docID {
 			finish()
@@ -815,7 +816,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, p params, cr *co
 			}
 		}
 	default:
-		return errStatus(http.StatusMethodNotAllowed, "update requires PUT or POST")
+		return apperr.New(apperr.CSMethodNotAllowed, "update needs PUT (one component) or POST multipart/form-data, not %s", r.Method)
 	}
 	if err := s.docs.saveMeta(r.Context(), cr, d.id, d, func(m *docMeta, isNew bool) {
 		m.Modified = now
@@ -864,7 +865,7 @@ func (s *Server) appendComp(w http.ResponseWriter, r *http.Request, p params, cr
 	}
 	c := d.comp(p.get("compId"))
 	if c == nil {
-		return errStatus(http.StatusNotFound, "component %s not found", p.get("compId"))
+		return apperr.New(apperr.CSCompNotFound, "document %q has no component %q (components: %s)", d.id, p.get("compId"), d.compNames())
 	}
 	defer s.docs.invalidate(cr, d.id)
 
@@ -929,7 +930,7 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request, p params, cr 
 	if id := p.get("compId"); id != "" {
 		c := d.comp(id)
 		if c == nil {
-			return errStatus(http.StatusNotFound, "component %s not found", id)
+			return apperr.New(apperr.CSCompNotFound, "document %q has no component %q (components: %s)", d.id, id, d.compNames())
 		}
 		if err := s.docs.deleteComponent(r.Context(), cr, c); err != nil {
 			return err
@@ -964,14 +965,14 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, p params, cr *co
 	}
 	c := d.comp(p.get("compId"))
 	if c == nil {
-		return errStatus(http.StatusNotFound, "component %s not found", p.get("compId"))
+		return apperr.New(apperr.CSCompNotFound, "document %q has no component %q (components: %s)", d.id, p.get("compId"), d.compNames())
 	}
 	pattern := []byte(p.get("pattern"))
 	caseSensitive := strings.EqualFold(p.get("caseSensitive"), "y")
 	numResults := 1
 	if v := p.get("numResults"); v != "" {
 		if numResults, err = strconv.Atoi(v); err != nil || numResults < 1 {
-			return errStatus(http.StatusBadRequest, "invalid numResults")
+			return apperr.New(apperr.CSNumResultsInvalid, "numResults %q is not a whole number >= 1", p.get("numResults"))
 		}
 	}
 	from, to := int64(0), int64(-1)
@@ -992,7 +993,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, p params, cr *co
 	var hits []int64
 	if lo <= hi && c.item.Size > 0 && len(pattern) > 0 {
 		if backward && hi-lo+1 > maxBackwardSearch {
-			return errStatus(http.StatusBadRequest, "backward search range too large")
+			return apperr.New(apperr.CSSearchRangeTooLarge, "a backward search over %d bytes exceeds the %d byte limit", hi-lo+1, maxBackwardSearch)
 		}
 		resp, err := s.svc.Open(r.Context(), cr.repo, &c.item, fmt.Sprintf("bytes=%d-%d", lo, hi))
 		if err != nil {
@@ -1116,7 +1117,7 @@ func (s *Server) putCert(w http.ResponseWriter, r *http.Request, p params, cr *c
 	}
 	cert, err := parseCertificateLenient(body)
 	if err != nil {
-		return errStatus(http.StatusNotAcceptable, "certificate not recognized: %v", err)
+		return apperr.New(apperr.CSCertNotRecognized, "the putCert body (%d bytes) is not an X.509 certificate: %v", len(body), err)
 	}
 	rec, err := s.certs.put(r.Context(), cr, p.get("authId"), cert, s.cfg.AutoActivateCertificates)
 	if err != nil {
@@ -1134,7 +1135,7 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request, p params, pv
 	ids := s.order
 	if id := p.get("contRep"); id != "" {
 		if _, ok := s.reps[id]; !ok {
-			s.fail(w, r, errStatus(http.StatusNotFound, "unknown content repository %q", id))
+			s.fail(w, r, apperr.New(apperr.CSContRepUnknown, "content repository %q is not configured; configured: %s", id, strings.Join(s.order, ", ")))
 			return
 		}
 		ids = []string{id}
@@ -1142,7 +1143,7 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request, p params, pv
 	now := s.now()
 	if strings.EqualFold(p.get("resultAs"), "html") {
 		var b strings.Builder
-		fmt.Fprintf(&b, "<html><body><h3>SharePoint Adapter content server %s</h3><p>Status: running, %s %s UTC</p><table border=1><tr><th>contRep</th><th>Description</th><th>Status</th></tr>",
+		fmt.Fprintf(&b, "<html><body><h3>ZAKS Drive content server %s</h3><p>Status: running, %s %s UTC</p><table border=1><tr><th>contRep</th><th>Description</th><th>Status</th></tr>",
 			html.EscapeString(s.version), ymd(now), hms(now))
 		for _, id := range ids {
 			fmt.Fprintf(&b, "<tr><td>%s</td><td>%s</td><td>running</td></tr>", html.EscapeString(id), html.EscapeString(s.reps[id].cfg.Description))

@@ -4,8 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
+
+	"sharepointadapter/internal/apperr"
 )
 
 // alwaysSigned parameters per the spec ("secKey" page); signedExtra lists
@@ -85,21 +88,21 @@ func (s *Server) authAfter(r *http.Request, p params, cr *contentRep, need byte,
 func (s *Server) verify(r *http.Request, p params, cr *contentRep, need byte) error {
 	secKey := p.get("secKey")
 	if secKey == "" {
-		return errStatus(http.StatusUnauthorized, "secKey required")
+		return apperr.New(apperr.CSSecKeyMissing, "the %s command on content repository %s needs a signed URL (secKey) and none was sent", p.cmd, cr.id)
 	}
 	accessMode, authID, expiration := p.get("accessMode"), p.get("authId"), p.get("expiration")
 	if accessMode == "" || authID == "" || expiration == "" {
-		return errStatus(http.StatusUnauthorized, "accessMode, authId and expiration are required with secKey")
+		return apperr.New(apperr.CSSecKeyParamsMissing, "a secKey was sent without %s", missingParams(accessMode, authID, expiration))
 	}
 	if strings.IndexByte(accessMode, need) < 0 {
-		return errStatus(http.StatusUnauthorized, "accessMode %q does not permit '%c'", accessMode, need)
+		return apperr.New(apperr.CSAccessModeDenied, "the signature allows accessMode %q but this command needs '%c' (r=read, c=create, u=update, d=delete)", accessMode, need)
 	}
 	exp, err := time.Parse("20060102150405", expiration)
 	if err != nil {
-		return errStatus(http.StatusUnauthorized, "invalid expiration")
+		return apperr.New(apperr.CSExpirationInvalid, "expiration %q is not YYYYMMDDHHMMSS (UTC)", expiration)
 	}
 	if s.now().UTC().After(exp.Add(s.cfg.ClockSkew)) {
-		return errStatus(http.StatusUnauthorized, "URL expired")
+		return apperr.New(apperr.CSURLExpired, "the URL expired at %s UTC; the adapter server time is %s UTC (allowed clock difference %s)", exp.Format("2006-01-02 15:04:05"), s.now().UTC().Format("2006-01-02 15:04:05"), s.cfg.ClockSkew)
 	}
 
 	rec := s.certs.lookup(cr.id, authID)
@@ -110,18 +113,19 @@ func (s *Server) verify(r *http.Request, p params, cr *contentRep, need byte) er
 	}
 	switch {
 	case rec == nil:
-		return errStatus(http.StatusUnauthorized, "no certificate for authId %q; send it from OAC0 (putCert) and activate it", authID)
+		return apperr.New(apperr.CSCertUnknown, "no certificate was received for authId %q in content repository %s (certificates known for it: %s)", authID, cr.id, s.certs.knownFor(cr.id))
 	case !rec.Active:
-		return errStatus(http.StatusUnauthorized, "certificate for authId %q is not activated", authID)
+		return apperr.New(apperr.CSCertInactive, "the certificate for authId %q in content repository %s was received but is not activated", authID, cr.id).
+			WithFix("Compare its fingerprint %s with STRUST, then run: adapter certs activate %s '%s'", short(rec.Fingerprint), cr.id, authID)
 	}
 
 	der, err := decodeSecKey(secKey)
 	if err != nil {
-		return errStatus(http.StatusUnauthorized, "invalid secKey")
+		return apperr.New(apperr.CSSecKeyMalformed, "the secKey is not valid Base64")
 	}
 	sig, err := parseSignature(der)
 	if err != nil {
-		return errStatus(http.StatusUnauthorized, "invalid secKey: %v", err)
+		return apperr.New(apperr.CSSecKeyMalformed, "the secKey is not a PKCS#7 signature: %v", err)
 	}
 	var lastErr error
 	for _, msg := range signedMessages(p.cmd, r.URL.RawQuery) {
@@ -130,5 +134,23 @@ func (s *Server) verify(r *http.Request, p params, cr *contentRep, need byte) er
 		}
 	}
 	s.log.Warn("secKey verification failed", "contRep", cr.id, "authId", authID, "command", p.cmd, "error", lastErr)
-	return errStatus(http.StatusUnauthorized, "secKey verification failed")
+	return apperr.New(apperr.CSSecKeyInvalid, "the signature does not match the URL and the activated certificate %s for authId %q (%v)", short(rec.Fingerprint), authID, lastErr)
+}
+
+func missingParams(accessMode, authID, expiration string) string {
+	var m []string
+	for n, v := range map[string]string{"accessMode": accessMode, "authId": authID, "expiration": expiration} {
+		if v == "" {
+			m = append(m, n)
+		}
+	}
+	sort.Strings(m)
+	return strings.Join(m, ", ")
+}
+
+func short(fp string) string {
+	if len(fp) > 16 {
+		return fp[:16] + "..."
+	}
+	return fp
 }

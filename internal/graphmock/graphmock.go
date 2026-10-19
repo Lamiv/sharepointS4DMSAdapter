@@ -194,6 +194,25 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleGraph parses /drives/{d}/(root|root:/path:|items/{id})[/suffix].
 func (s *server) handleGraph(w http.ResponseWriter, r *http.Request, p string) {
+	// GET /users/{upn}/drive: the user's OneDrive. Any user resolves to the
+	// first drive, except names containing "missing" (a user without OneDrive).
+	if strings.HasPrefix(p, "users/") && strings.HasSuffix(p, "/drive") {
+		user, _ := url.PathUnescape(strings.TrimSuffix(strings.TrimPrefix(p, "users/"), "/drive"))
+		s.mu.RLock()
+		var first string
+		for d := range s.roots {
+			if first == "" || d < first {
+				first = d
+			}
+		}
+		s.mu.RUnlock()
+		if strings.Contains(user, "missing") || first == "" {
+			graphError(w, 404, "itemNotFound", "The user has no OneDrive.")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": first})
+		return
+	}
 	if !strings.HasPrefix(p, "drives/") {
 		graphError(w, 404, "itemNotFound", "only /drives is emulated")
 		return

@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/observability"
 )
@@ -111,7 +112,7 @@ func (e *Engine) reserve(ctx context.Context, n int64) (func(), error) {
 // Upload stores body at t. size is the exact body length, or -1 if unknown.
 func (e *Engine) Upload(ctx context.Context, t Target, body io.Reader, size int64) (*graph.DriveItem, error) {
 	if size > e.opts.MaxUpload {
-		return nil, ErrTooLarge
+		return nil, e.tooLarge(size)
 	}
 	if size >= 0 && size <= e.opts.SimpleUploadMax {
 		return e.uploadSimple(ctx, t, body, size)
@@ -231,7 +232,7 @@ func (e *Engine) uploadUnknown(ctx context.Context, t Target, body io.Reader) (*
 		return nil, fmt.Errorf("spool: %w", err)
 	}
 	if copied > limit {
-		return nil, ErrTooLarge
+		return nil, e.tooLarge(-1)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -328,3 +329,12 @@ func isExpired(err error) bool {
 
 // writerOnly hides ReadFrom so io.CopyBuffer uses our pooled buffer.
 type writerOnly struct{ io.Writer }
+
+// tooLarge builds the coded error; size is -1 when the body had no length.
+func (e *Engine) tooLarge(size int64) error {
+	d := fmt.Sprintf("the upload is larger than the limit of %d bytes (transfer.maxUploadBytes)", e.opts.MaxUpload)
+	if size >= 0 {
+		d = fmt.Sprintf("the upload is %d bytes; the limit is %d bytes (transfer.maxUploadBytes)", size, e.opts.MaxUpload)
+	}
+	return apperr.New(apperr.UploadTooLarge, "%s", d).Wrap(ErrTooLarge)
+}

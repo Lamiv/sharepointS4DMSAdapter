@@ -16,6 +16,8 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"sharepointadapter/internal/accesscheck"
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/contentrepo"
@@ -35,22 +38,81 @@ import (
 	"sharepointadapter/internal/transfer"
 )
 
+// version is set at build time (-X main.version=...).
 var version = "dev"
+
+const (
+	productName    = "ZAKS Drive"
+	productDesc    = "Open-Source Enterprise Content Gateway"
+	productSummary = "Self-hosted content gateway connecting SAP S/4HANA and enterprise applications to SharePoint Online and OneDrive for Business."
+)
+
+func exeName() string {
+	n := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
+	if n == "" || n == "adapter" {
+		return "zaks-drive" // "adapter" is the pre-rename name, kept as an alias in the image
+	}
+	return n
+}
+
+func printVersion() {
+	fmt.Printf("%s %s (%s, %s/%s)\n", productName, version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+func usage(w io.Writer) {
+	x := exeName()
+	fmt.Fprintf(w, `%s %s - %s
+%s
+
+Usage:
+  %[5]s [-config file]                      run the server (default; the command "serve" does the same)
+  %[5]s check                               verify every access the server needs: PASS / FAIL / SKIP, with the fix
+  %[5]s certs list|activate|deactivate ...  manage SAP certificates on a running server
+  %[5]s errors                              print the error-code catalogue as Markdown
+  %[5]s version                             print the version
+  %[5]s -healthcheck                        probe the local /healthz endpoint (Docker HEALTHCHECK)
+
+Configuration: -config <file> or the CONFIG_FILE variable (default in Docker: /etc/adapter/config.yaml).
+Documentation: README.md, docs/index.md and docs/error-codes.md in the repository.
+`, productName, version, productDesc, productSummary, x)
+}
 
 func main() {
 	cfgPath := flag.String("config", os.Getenv("CONFIG_FILE"), "path to YAML config")
 	healthcheck := flag.Bool("healthcheck", false, "probe the local admin /healthz endpoint and exit (for Docker HEALTHCHECK)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Usage = func() { usage(os.Stderr) }
 	flag.Parse()
+	if *showVersion {
+		printVersion()
+		return
+	}
 	if *healthcheck {
 		os.Exit(probe())
 	}
-	if flag.Arg(0) == "certs" {
+	switch cmd := flag.Arg(0); cmd {
+	case "version":
+		printVersion()
+		return
+	case "help":
+		usage(os.Stdout)
+		return
+	case "certs":
 		os.Exit(certsCLI(flag.Args()[1:]))
+	case "errors":
+		// Prints the error-code catalogue as Markdown (docs/error-codes.md).
+		fmt.Print(apperr.Markdown())
+		return
+	case "", "serve", "check":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
+		usage(os.Stderr)
+		os.Exit(2)
 	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "configuration error:", err)
+		fmt.Fprintln(os.Stderr, productName+" cannot start because of its configuration:\n"+apperr.Format(err))
 		os.Exit(2)
 	}
 	log := observability.NewLogger(cfg.Log.Level, cfg.Log.Format)
@@ -58,8 +120,14 @@ func main() {
 	if flag.Arg(0) == "check" {
 		os.Exit(runCheck(cfg))
 	}
+	log.Info(productName+" starting", "version", version, "interfaces", cfg.Server.Interfaces, "go", runtime.Version())
 	if err := run(cfg, log); err != nil {
-		log.Error("adapter stopped", "error", err)
+		if ae, ok := apperr.As(err); ok {
+			log.Error(productName+" stopped", "code", ae.Code, "error", ae.Detail, "fix", ae.Fix())
+		} else {
+			log.Error(productName+" stopped", "error", err)
+		}
+		fmt.Fprintln(os.Stderr, productName+" stopped:\n"+apperr.Format(err))
 		os.Exit(1)
 	}
 }
@@ -104,6 +172,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 			err = s.ListenAndServe()
 		}
 		if !errors.Is(err, http.ErrServerClosed) {
+			if errors.Is(err, syscall.EADDRINUSE) {
+				err = apperr.New(apperr.StartupPortInUse, "cannot listen on %s: the address is already in use inside the container (do restAddr, contentRepoAddr and adminAddr differ?)", s.Addr).Wrap(err)
+			}
 			errCh <- fmt.Errorf("%s: %w", s.Addr, err)
 		}
 	}
@@ -125,8 +196,13 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 		wait := min(time.Duration(attempt)*2*time.Second, 30*time.Second)
 		hint := initHint(ctx, err, tokens)
-		status.Store("not ready: repository initialisation failed: " + err.Error() + hint)
-		log.Error("repository initialisation failed; retrying", "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
+		reason := err.Error()
+		code := apperr.StartupRepositoryFailed
+		if ae := graph.Classify(err); ae != nil {
+			reason, code = ae.Message(), ae.Code
+		}
+		status.Store("not ready: the configured SharePoint location cannot be used yet. " + reason + hint)
+		log.Error("repository initialisation failed; retrying", "code", code, "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -298,8 +374,8 @@ func probe() int {
 // certsCLI manages content server certificates through the local admin
 // listener, e.g. inside the container:
 //
-//	/adapter certs list
-//	/adapter certs activate Z1 CN=S4H
+//	/zaks-drive certs list
+//	/zaks-drive certs activate Z1 CN=S4H
 func certsCLI(args []string) int {
 	base := os.Getenv("ADMIN_URL")
 	if base == "" {
@@ -331,10 +407,20 @@ func certsCLI(args []string) int {
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.CLIAdminUnreachable, "no answer from %s: %v", base, err)))
 		return 1
 	}
 	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.CLIAdminRouteMissing, "%s answered 404 for the certificate endpoints", base)))
+		return 1
+	case http.StatusUnauthorized:
+		if os.Getenv("ADMIN_TOKEN") == "" {
+			fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.AuthAdminUnauthorized, "ADMIN_TOKEN is not set in this environment, so the request carried no token")))
+			return 1
+		}
+	}
 	_, _ = io.Copy(os.Stdout, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return 1
@@ -346,27 +432,24 @@ func certsCLI(args []string) int {
 // Entra issued a token almost always means the token carries no (or the
 // wrong) application permissions, so the token's roles are shown.
 func initHint(ctx context.Context, err error, tokens *auth.ClientCredentials) string {
-	var ge *graph.Error
-	if !errors.As(err, &ge) {
+	ae := graph.Classify(err)
+	if ae == nil || (ae.Code != apperr.SPUnauthorized && ae.Code != apperr.SPAccessDenied) {
 		return ""
 	}
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	tok, terr := tokens.Token(tctx)
 	if terr != nil {
-		return " | the access token itself could not be obtained: " + terr.Error()
+		return ""
 	}
 	roles := auth.TokenRoles(tok)
-	switch {
-	case ge.Status == http.StatusUnauthorized && len(roles) == 0:
+	if len(roles) == 0 {
 		return " | the access token has NO application permissions (roles): add Microsoft Graph APPLICATION permissions to the app registration and click 'Grant admin consent'"
-	case ge.Status == http.StatusUnauthorized || ge.Status == http.StatusForbidden:
-		return " | token roles: " + strings.Join(roles, ",") + " | these do not allow this lookup: siteUrl needs Sites.Read.All or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; also check that admin consent was granted"
 	}
-	return " | token roles: " + strings.Join(roles, ",")
+	return " | the token carries these roles: " + strings.Join(roles, ", ") + ". siteUrl needs Sites.Selected plus a site grant, or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; check that admin consent was granted"
 }
 
-// runCheck implements `adapter check`: it verifies every access the adapter
+// runCheck implements `zaks-drive check`: it verifies every access the adapter
 // needs against the real Graph and prints a PASS/FAIL/SKIP checklist.
 func runCheck(cfg config.Config) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

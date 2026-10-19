@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"sharepointadapter/internal/apperr"
 )
 
 type Identity struct {
@@ -143,6 +145,9 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 			ID string `json:"id"`
 		}
 		resp, err := c.do(ctx, request{op: "drive.user", method: http.MethodGet, url: "/users/" + url.PathEscape(userID) + "/drive?$select=id"})
+		if IsNotFound(err) {
+			return "", apperr.New(apperr.SPUserDriveNotFound, "no OneDrive found for user %q", userID).Wrap(err)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -154,7 +159,7 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 	if siteID == "" {
 		u, err := url.Parse(siteURL)
 		if err != nil || u.Host == "" {
-			return "", fmt.Errorf("invalid siteUrl %q", siteURL)
+			return "", apperr.New(apperr.CfgSiteURLInvalid, "siteUrl %q is not a URL like https://<tenant>.sharepoint.com/sites/<site>", siteURL)
 		}
 		var site struct {
 			ID string `json:"id"`
@@ -164,6 +169,9 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 			path += ":/" + EscapePath(p)
 		}
 		resp, err := c.do(ctx, request{op: "site.get", method: http.MethodGet, url: path + "?$select=id"})
+		if IsNotFound(err) {
+			return "", apperr.New(apperr.SPSiteNotFound, "no site found at %q", siteURL).Wrap(err)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -205,7 +213,7 @@ func (c *Client) ResolveDrive(ctx context.Context, userID, siteID, siteURL, driv
 		}
 		names = append(names, d.Name)
 	}
-	return "", fmt.Errorf("document library %q not found in site %s; libraries available to this app: [%s] (driveName is the library's display name, not necessarily its URL segment)", driveName, siteID, strings.Join(names, ", "))
+	return "", apperr.New(apperr.SPLibraryNotFound, "there is no library named %q on this site; libraries the app can see: %s", driveName, strings.Join(names, ", "))
 }
 
 // ---- metadata ----

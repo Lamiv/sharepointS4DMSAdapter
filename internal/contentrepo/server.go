@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/observability"
@@ -63,16 +65,9 @@ func New(ctx context.Context, svc *storage.Service, cfg config.ContentServerConf
 		s.order = append(s.order, rc.ContRep)
 	}
 	for _, cidr := range cfg.AllowedNetworks {
-		if !strings.Contains(cidr, "/") {
-			if strings.Contains(cidr, ":") {
-				cidr += "/128"
-			} else {
-				cidr += "/32"
-			}
-		}
-		_, n, err := net.ParseCIDR(cidr)
+		n, err := config.ParseNetwork(cidr)
 		if err != nil {
-			return nil, fmt.Errorf("contentServer.allowedNetworks: %w", err)
+			return nil, apperr.New(apperr.CfgNetworkInvalid, "contentServer.allowedNetworks entry %q: %v", cidr, err)
 		}
 		s.allowed = append(s.allowed, n)
 	}
@@ -144,60 +139,61 @@ func parseParams(rawQuery string) params {
 
 // ---- errors ----
 
-type csError struct {
-	status int
-	msg    string
-}
-
-func (e *csError) Error() string { return e.msg }
-
-func errStatus(status int, format string, args ...any) error {
-	return &csError{status: status, msg: fmt.Sprintf(format, args...)}
-}
-
-func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
-	status, msg := http.StatusInternalServerError, "internal error"
-	var ce *csError
-	var ge *graph.Error
-	var mbe *http.MaxBytesError
-	switch {
-	case errors.As(err, &ce):
-		status, msg = ce.status, ce.msg
-	case errors.Is(err, context.Canceled):
-		return
-	case errors.Is(err, storage.ErrNotFound):
-		status, msg = http.StatusNotFound, "document or component not found"
-	case errors.Is(err, errDocExists), errors.Is(err, errCompExists):
-		status, msg = http.StatusForbidden, err.Error()
-	case errors.Is(err, errBusy), errors.Is(err, errMetaUnavailable):
-		// 409 = "document, component or administration data inaccessible"
-		status, msg = http.StatusConflict, err.Error()
-	case errors.Is(err, storage.ErrInvalid):
-		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, storage.ErrReadOnly):
-		status, msg = http.StatusForbidden, "repository is read-only"
-	case errors.Is(err, transfer.ErrTooLarge), errors.As(err, &mbe):
-		status, msg = http.StatusRequestEntityTooLarge, "content too large"
-	case errors.As(err, &ge) && (ge.Status == http.StatusTooManyRequests || ge.Status == http.StatusServiceUnavailable):
-		status, msg = http.StatusServiceUnavailable, "SharePoint is throttling requests; retry later"
-		w.Header().Set("Retry-After", "5")
-	case errors.As(err, &ge):
-		status, msg = http.StatusInternalServerError, "SharePoint request failed"
+// csStatus maps an error's HTTP status to what the SAP specification
+// defines: 200, 201, 400, 401, 403, 404, 406, 409, 500 (plus 405, 413, 501
+// and 503, which SAP treats as errors).
+func csStatus(e *apperr.Error) int {
+	st := e.Status()
+	if st >= 500 && st != http.StatusNotImplemented && st != http.StatusServiceUnavailable {
+		return http.StatusInternalServerError
 	}
-	// Every refused request is logged with its reason, so a test run (for
-	// example report RSCMSTH2) can be diagnosed from `docker compose logs`.
+	return st
+}
+
+// fail answers with the coded error behind err. SAP shows the
+// X-ErrorDescription header, so it carries the code, what happened and the
+// fix on one ASCII line.
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
+	var mbe *http.MaxBytesError
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	e, ok := apperr.As(err)
+	if !ok {
+		switch {
+		case errors.As(err, &mbe):
+			e = apperr.New(apperr.UploadTooLarge, "the request body is larger than %d bytes", mbe.Limit).Wrap(transfer.ErrTooLarge)
+		case graph.Classify(err) != nil:
+			e = graph.Classify(err)
+		case errors.Is(err, storage.ErrInvalid):
+			e = apperr.New(apperr.CSIDInvalid, "%v", err).Wrap(err)
+		default:
+			e = apperr.New(apperr.InternalError, "%v", err)
+		}
+	}
+	status := csStatus(e)
+	if e.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(max(int(e.RetryAfter.Seconds()+0.5), 1)))
+	}
+	// Every refused request is logged with its code and reason, so a test run
+	// (for example report RSCMSTH2) can be diagnosed from `docker compose logs`.
 	q := parseParams(r.URL.RawQuery)
 	lvl := slog.LevelWarn
-	if status >= 500 {
+	if status >= 500 && status != http.StatusNotImplemented {
 		lvl = slog.LevelError
 	}
 	s.log.LogAttrs(r.Context(), lvl, "content server request refused",
 		slog.String("request_id", observability.RequestID(r.Context())),
-		slog.String("command", q.cmd), slog.Int("status", status), slog.String("reason", msg),
+		slog.String("command", q.cmd), slog.Int("status", status), slog.String("code", e.Code), slog.String("reason", e.Detail),
 		slog.String("contRep", q.get("contRep")), slog.String("docId", q.get("docId")), slog.String("compId", q.get("compId")),
 		slog.String("method", r.Method), slog.String("error", err.Error()))
+	msg := e.Message()
+	if len(msg) > 700 {
+		msg = msg[:700] + "..."
+	}
 	h := w.Header()
-	h.Set("X-ErrorDescription", msg)
+	h.Set("X-ErrorDescription", apperr.ASCII(msg))
+	h.Set("X-ErrorCode", e.Code)
 	h.Set("Content-Type", "text/plain; charset=utf-8")
 	h.Del("Content-Length")
 	w.WriteHeader(status)
@@ -216,7 +212,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	p := parseParams(r.URL.RawQuery)
 	r.Pattern = "cs:" + p.cmd // metrics/log route label
 	if !s.allowedClient(r) {
-		s.fail(w, r, errStatus(http.StatusForbidden, "client address not allowed"))
+		s.fail(w, r, apperr.New(apperr.CSClientNotAllowed, "the address %s is not in contentServer.allowedNetworks (%s)", clientIP(r), strings.Join(s.cfg.AllowedNetworks, ", ")))
 		return
 	}
 	if s.log.Enabled(r.Context(), slog.LevelDebug) {
@@ -236,12 +232,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.cmd == "" {
-		s.fail(w, r, errStatus(http.StatusBadRequest, "missing command"))
+		s.fail(w, r, apperr.New(apperr.CSCommandMissing, "the query string %q has no command", r.URL.RawQuery))
 		return
 	}
 	cr, ok := s.reps[p.get("contRep")]
 	if !ok {
-		s.fail(w, r, errStatus(http.StatusNotFound, "unknown content repository %q", p.get("contRep")))
+		s.fail(w, r, apperr.New(apperr.CSContRepUnknown, "content repository %q is not configured; configured: %s", p.get("contRep"), strings.Join(s.order, ", ")))
 		return
 	}
 	var err error
@@ -273,14 +269,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		// not used by DMS, GOS, attachments or ArchiveLink at runtime. Third-party
 		// content servers answer 501; SAP then only reports that CSADMIN cannot
 		// administer this server.
-		err = errStatus(http.StatusNotImplemented, "adminContRep %s is not supported: this content server is configured in config.yaml, not through CSADMIN", adminOperation(p))
+		err = apperr.New(apperr.CSAdminUnsupported, "adminContRep %s is not supported (SAP CSADMIN); this content server is configured in config.yaml", adminOperation(p))
 		s.log.Info("adminContRep requested (not supported)", "operation", adminOperation(p), "contRep", cr.id)
 	case "attrSearch", "getCert":
 		// attrSearch (print-list attribute index) and getCert (4.6 cache
 		// server) are not implemented; see docs/content-server.md.
-		err = errStatus(http.StatusNotImplemented, "%s is not supported by this content server", p.cmd)
+		err = apperr.New(apperr.CSCommandUnsupported, "the command %s is not supported by this content server", p.cmd)
 	default:
-		err = errStatus(http.StatusBadRequest, "unknown command %q", p.cmd)
+		err = apperr.New(apperr.CSCommandUnknown, "%q is not a command of the SAP Content Server HTTP interface", p.cmd)
 	}
 	if err != nil {
 		s.fail(w, r, err)
@@ -328,14 +324,23 @@ func requireMethod(r *http.Request, methods ...string) error {
 			return nil
 		}
 	}
-	return errStatus(http.StatusMethodNotAllowed, "method %s not allowed for this command", r.Method)
+	return apperr.New(apperr.CSMethodNotAllowed, "the command %s does not accept %s; use %s", parseParams(r.URL.RawQuery).cmd, r.Method, strings.Join(methods, " or "))
 }
 
 func requireParam(p params, names ...string) error {
 	for _, n := range names {
 		if p.get(n) == "" {
-			return errStatus(http.StatusBadRequest, "parameter %s is required", n)
+			return apperr.New(apperr.CSParamMissing, "the URL parameter %s is required", n)
 		}
 	}
 	return nil
+}
+
+// clientIP is the address the connection came from.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/storage"
@@ -32,11 +33,36 @@ import (
 
 const sidecarName = "~sapdoc.json"
 
+// Sentinels kept for errors.Is; the errors carry catalogue codes.
 var (
 	errDocExists  = errors.New("document already exists")
 	errCompExists = errors.New("component already exists")
 	errBusy       = errors.New("concurrent modification; retry")
 )
+
+func docExists(cr *contentRep, docID string) error {
+	return apperr.New(apperr.CSDocExists, "document %q already exists in content repository %s", docID, cr.id).Wrap(errDocExists)
+}
+
+func compExists(docID, compID string) error {
+	return apperr.New(apperr.CSCompExists, "component %q of document %q already exists", compID, docID).Wrap(errCompExists)
+}
+
+func busy(docID string) error {
+	return apperr.New(apperr.CSBusy, "document %q is being modified by other requests; gave up after repeated conflicts", docID).Wrap(errBusy)
+}
+
+// compNames lists the component IDs, for error messages.
+func (d *document) compNames() string {
+	if len(d.comps) == 0 {
+		return "none"
+	}
+	names := make([]string, len(d.comps))
+	for i, c := range d.comps {
+		names[i] = c.id
+	}
+	return strings.Join(names, ", ")
+}
 
 type contentRep struct {
 	id     string
@@ -134,7 +160,7 @@ func (d *document) modified() time.Time {
 // escaped, which keeps "~sapdoc.json" and "~certs" out of the SAP namespace.
 func encodeName(s string) (string, error) {
 	if s == "" {
-		return "", fmt.Errorf("%w: empty identifier", storage.ErrInvalid)
+		return "", apperr.New(apperr.CSIDInvalid, "the document or component ID is empty").Wrap(storage.ErrInvalid)
 	}
 	lower := strings.ToLower(s)
 	escUnderscore := strings.Contains(lower, "_vti_")
@@ -152,7 +178,7 @@ func encodeName(s string) (string, error) {
 		}
 	}
 	if b.Len() > 255 {
-		return "", fmt.Errorf("%w: identifier too long", storage.ErrInvalid)
+		return "", apperr.New(apperr.CSIDInvalid, "the identifier %.40q... is %d characters after encoding; the limit is 255", s, b.Len()).Wrap(storage.ErrInvalid)
 	}
 	return b.String(), nil
 }
@@ -363,7 +389,7 @@ func (s *docStore) loadFresh(ctx context.Context, cr *contentRep, docID string) 
 		if err != nil {
 			// Fail closed: without the sidecar the document's protection
 			// level (docProt) and content types are unknown.
-			return nil, fmt.Errorf("%w: %v", errMetaUnavailable, err)
+			return nil, apperr.New(apperr.CSMetaUnreadable, "the metadata file of document %q cannot be read: %v", docID, err).Wrap(errMetaUnavailable)
 		}
 		d.meta = m
 	}
@@ -472,7 +498,7 @@ func (s *docStore) saveMeta(ctx context.Context, cr *contentRep, docID string, d
 			return err
 		}
 	}
-	return errBusy
+	return busy(docID)
 }
 
 // ensureShard creates the shard folder once per process so concurrent
@@ -521,11 +547,11 @@ func (s *docStore) putComponent(ctx context.Context, cr *contentRep, docID, comp
 	it, err := s.svc.Upload(ctx, cr.repo, storage.UploadRequest{Folder: folder, Name: name, Conflict: conflict, Body: body, Size: size})
 	if graph.IsConflict(err) {
 		if _, gerr := s.svc.GetByPath(ctx, cr.repo, folder+"/"+name); gerr == nil {
-			return nil, errCompExists
+			return nil, compExists(docID, compID)
 		}
 		// 409 without an existing file: a parallel request created the
 		// document folder at the same moment.
-		return nil, errBusy
+		return nil, busy(docID)
 	}
 	return it, err
 }

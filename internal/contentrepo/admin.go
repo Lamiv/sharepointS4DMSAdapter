@@ -3,7 +3,11 @@ package contentrepo
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
+
+	"sharepointadapter/internal/apperr"
+	"sharepointadapter/internal/graph"
 )
 
 // RegisterAdmin adds certificate administration (the equivalent of the
@@ -20,7 +24,7 @@ func (s *Server) RegisterAdmin(mux *http.ServeMux, token string) {
 			if token != "" {
 				got := []byte(r.Header.Get("Authorization"))
 				if subtle.ConstantTimeCompare(got, []byte("Bearer "+token)) != 1 {
-					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					adminFail(w, apperr.New(apperr.AuthAdminUnauthorized, "the Authorization header is missing or does not carry the ADMIN_TOKEN"))
 					return
 				}
 			}
@@ -29,7 +33,7 @@ func (s *Server) RegisterAdmin(mux *http.ServeMux, token string) {
 	}
 	mux.HandleFunc("GET /admin/contentserver/certificates", guard(func(w http.ResponseWriter, r *http.Request) {
 		if err := s.certs.reload(r.Context(), 0); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			adminFail(w, err)
 			return
 		}
 		writeAdminJSON(w, http.StatusOK, map[string]any{"value": s.certs.list()})
@@ -41,12 +45,12 @@ func (s *Server) RegisterAdmin(mux *http.ServeMux, token string) {
 				AuthID  string `json:"authId"`
 			}
 			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.ContRep == "" || body.AuthID == "" {
-				http.Error(w, `body must be {"contRep":"..","authId":".."}`, http.StatusBadRequest)
+				adminFail(w, apperr.New(apperr.CertRequestInvalid, "the body must be JSON like {\"contRep\":\"Z1\",\"authId\":\"CN=...\"} and both fields must be non-empty"))
 				return
 			}
 			rec, err := s.certs.setActive(r.Context(), body.ContRep, body.AuthID, active)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				adminFail(w, err)
 				return
 			}
 			s.log.Info("content server certificate state changed", "contRep", rec.ContRep, "authId", rec.AuthID, "active", active, "fingerprint", rec.Fingerprint)
@@ -65,4 +69,20 @@ func writeAdminJSON(w http.ResponseWriter, status int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// adminFail answers with the code, what happened and the fix, as plain text
+// that the `adapter certs` command prints unchanged.
+func adminFail(w http.ResponseWriter, err error) {
+	e, ok := apperr.As(err)
+	if !ok {
+		if c := graph.Classify(err); c != nil {
+			e = c
+		} else {
+			e = apperr.New(apperr.InternalError, "%v", err)
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(e.Status())
+	fmt.Fprintf(w, "%s: %s\n  fix: %s\n  more: %s\n", e.Code, firstNonEmpty(e.Detail, e.Title()), e.Fix(), e.URL())
 }

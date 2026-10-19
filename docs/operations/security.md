@@ -1,0 +1,56 @@
+# Security
+
+This page states what ZAKS Drive does for security, what depends on how you deploy it, and what it does not do. It is a description of the code, not an audit or a certification. Report vulnerabilities as described in [SECURITY.md](../../SECURITY.md).
+
+## Threat surface
+
+| Listener | Default port | Who connects | Protected by |
+|---|---|---|---|
+| REST API | 8080 | Applications | API key or JWT, per-key permissions and repositories |
+| SAP Content Server | 8090 | SAP application servers | SAP's signed URLs (`secKey`), `allowedNetworks` |
+| Admin (health, metrics, certificate admin) | 9090 | Operators, Prometheus | Bound to `127.0.0.1` in the Compose file. Certificate admin additionally needs `ADMIN_TOKEN` |
+| Outbound | 443 | Microsoft Entra, Microsoft Graph | TLS |
+
+## Implemented in the code
+
+- **API keys** are compared from configuration; they can be stored as SHA-256 hashes (`sha256:`) instead of plaintext. Each key has `read`, `write`, `delete` permissions and a repository list; a repository a key may not use answers 404.
+- **JWT bearer tokens** can be validated against an issuer, audience and JWKS URL, with roles mapped to permissions.
+- **SAP signatures:** PKCS#7 `secKey` verification, certificate activation by an administrator, URL expiry, access modes, document protection (`docProt`). See [content server](../sap/content-server.md#signature-verification-and-modes).
+- **Reserved content server folder:** the REST API cannot read or modify the folder that holds SAP documents and certificates.
+- **Paging cursors** are HMAC-signed and cannot be altered by clients.
+- **Input limits:** maximum upload size, SharePoint name and path validation before any Graph call, an in-flight request cap (`maxInFlight`) returning 503 beyond it.
+- **Logging hygiene:** requests are logged without `secKey` (it is redacted) and without file contents. No code path logs the client secret or API keys, but request paths and file names are logged, so do not put sensitive data in file names.
+- **Container hardening in the Compose file:** distroless non-root image, read-only root filesystem, `no-new-privileges`, memory limit, admin port on localhost.
+- **Least-privilege Graph option:** `Sites.Selected` with a per-site grant ([Graph permissions](../microsoft-365/graph-permissions.md)).
+
+## Secret management
+
+Secrets are the Entra client secret, API keys, the admin token and any TLS private key.
+
+- Put them only in `deploy/.env` (or your secret store) on the server. `deploy/.env` and `deploy/config.yaml` are git-ignored; never commit them, and never put a real secret into `config.example.yaml` or an issue.
+- Transfer secrets through a password manager or secure channel, not chat or e-mail.
+- The Entra secret has an expiry date. Rotate it before then: create a new secret, update `.env`, run `docker compose -f deploy/docker-compose.yml up -d` (recreate), confirm `zaks-drive check`, then delete the old secret. The same procedure applies at once if a secret is exposed.
+- The Value of a secret (not the Secret ID) is what `GRAPH_CLIENT_SECRET` needs.
+- `docker inspect` and the host environment expose container environment variables to anyone with Docker access on the host; restrict that access.
+
+## Depends on your deployment
+
+| Topic | Guidance |
+|---|---|
+| TLS | The server can serve TLS (`tlsCertFile`, `tlsKeyFile`) or sit behind a reverse proxy. Without either, API keys and documents travel in clear text on your network. A proxy must pass the query string of Content Server requests unchanged |
+| Network exposure | Publish 8080 and 8090 only to the networks that need them. Use `allowedNetworks` and firewall rules for 8090 |
+| API key hygiene | One key per application, minimum permissions, minimum repositories, rotate on staff or system changes |
+| `auth.disabled` / `AUTH_DISABLED` | Switches REST authentication off. For emulator tests only |
+| `signature: none` | Switches SAP signature checks off. For tests only |
+| `enablePprof` | Exposes profiling on the admin port. Leave off in production |
+| SharePoint permissions | Give people read access at most to the library that ZAKS Drive writes; SharePoint's own access control, retention, labels and DLP apply to the files |
+| Host and image updates | Rebuild regularly for Go and base-image fixes; see [deployment](deployment.md#upgrades) |
+
+## Not implemented
+
+- Entra authentication with a **certificate** instead of a client secret ([roadmap](../../ROADMAP.md)).
+- Per-key rate limiting (only a global in-flight cap exists).
+- A dedicated audit trail. Request logs record request ID, route, path, status, size and remote address, but not which API key was used, and they are ordinary logs, not tamper-evident.
+- Malware scanning of uploads, content inspection, encryption beyond what TLS and Microsoft 365 provide.
+- Mapping SAP users to SharePoint permissions. SharePoint sees only the application identity.
+- Any independent security review or penetration test. None has been done.

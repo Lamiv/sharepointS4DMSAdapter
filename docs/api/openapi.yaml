@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: SharePoint Adapter – Document REST API
+  title: ZAKS Drive – Document REST API
   version: 1.0.0
   description: |
     Document API for SAP S/4HANA, Fiori and other enterprise clients, backed by
@@ -341,4 +341,6 @@ components:
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
+        code: { type: string, description: "Error code; see docs/error-codes.md", example: DOC_NOT_FOUND }
+        hint: { type: string, description: How to fix it }
         requestId: { type: string }

@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/observability"
 )
 
@@ -106,7 +107,9 @@ func (c *ClientCredentials) fetch(ctx context.Context) (string, error) {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		observability.TokenRefreshes.WithLabelValues("error").Inc()
-		return "", fmt.Errorf("token request: %w", err)
+		// Cause is set: a network problem may be transient, so callers retry.
+		return "", apperr.New(apperr.TokenFailed, "the request to Microsoft Entra ID (%s) failed: %v", c.tokenHost(), err).
+			WithFix("Allow outbound HTTPS (443) from this server to login.microsoftonline.com; check DNS, proxy and the system clock.").Wrap(err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -117,7 +120,9 @@ func (c *ClientCredentials) fetch(ctx context.Context) (string, error) {
 			Description string `json:"error_description"`
 		}
 		_ = json.Unmarshal(body, &e)
-		return "", fmt.Errorf("token endpoint returned %d: %s %s", resp.StatusCode, e.Error, firstLine(e.Description))
+		desc := firstLine(e.Description)
+		return "", apperr.New(apperr.TokenFailed, "Microsoft Entra ID answered HTTP %d: %s %s", resp.StatusCode, e.Error, desc).
+			WithFix("%s", entraFix(resp.StatusCode, e.Error, desc))
 	}
 	var t struct {
 		AccessToken string `json:"access_token"`
@@ -125,7 +130,8 @@ func (c *ClientCredentials) fetch(ctx context.Context) (string, error) {
 	}
 	if err := json.Unmarshal(body, &t); err != nil || t.AccessToken == "" {
 		observability.TokenRefreshes.WithLabelValues("error").Inc()
-		return "", fmt.Errorf("invalid token response")
+		return "", apperr.New(apperr.TokenFailed, "Microsoft Entra ID answered HTTP 200 without an access token").
+			WithFix("Check graph.authorityUrl / GRAPH_AUTHORITY_URL: it should be https://login.microsoftonline.com")
 	}
 	if t.ExpiresIn <= 0 {
 		t.ExpiresIn = 3600
@@ -165,4 +171,31 @@ func TokenRoles(token string) []string {
 		return nil
 	}
 	return claims.Roles
+}
+
+func (c *ClientCredentials) tokenHost() string {
+	if u, err := url.Parse(c.tokenURL); err == nil {
+		return u.Host
+	}
+	return "login.microsoftonline.com"
+}
+
+// entraFix maps Microsoft Entra ID's error to the usual correction.
+func entraFix(status int, code, desc string) string {
+	d := strings.ToUpper(desc)
+	switch {
+	case strings.Contains(d, "AADSTS7000222"):
+		return "The client secret has EXPIRED. Create a new secret in Entra (App registration > Certificates & secrets), put its Value in GRAPH_CLIENT_SECRET in deploy/.env and recreate the container."
+	case strings.Contains(d, "AADSTS7000215") || code == "invalid_client":
+		return "The client secret is wrong. Use the secret VALUE (not its Secret ID) in GRAPH_CLIENT_SECRET in deploy/.env; check for stray spaces or quotes, then recreate the container."
+	case strings.Contains(d, "AADSTS700016") || code == "unauthorized_client":
+		return "No application with this client ID exists in this tenant. Check GRAPH_CLIENT_ID (Application (client) ID) and GRAPH_TENANT_ID in deploy/.env."
+	case strings.Contains(d, "AADSTS90002") || strings.Contains(d, "AADSTS900023") || code == "invalid_tenant":
+		return "The tenant ID is wrong. GRAPH_TENANT_ID must be the Directory (tenant) ID (a GUID) or the tenant's domain."
+	case strings.Contains(d, "AADSTS1002012") || strings.Contains(d, "AADSTS70011") || code == "invalid_scope":
+		return "The requested scope is invalid. graph.scope should be https://graph.microsoft.com/.default."
+	case status >= 500:
+		return "Microsoft Entra ID has a problem; retry later and check https://status.cloud.microsoft ."
+	}
+	return "Run `zaks-drive check`. The message above is Microsoft's own explanation: look up its AADSTS code at https://login.microsoftonline.com/error ."
 }

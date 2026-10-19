@@ -1,0 +1,26 @@
+# Label taxonomy for ZAKS Drive. Documentation only: nothing applies it automatically.
+# An owner can import it with a label-sync tool or create the labels by hand.
+# type
+- { name: "type: bug", color: "d73a4a", description: "Something is broken" }
+- { name: "type: feature", color: "a2eeef", description: "New capability" }
+- { name: "type: docs", color: "0075ca", description: "Documentation" }
+- { name: "type: security", color: "b60205", description: "Security-related (use private reporting for vulnerabilities)" }
+- { name: "type: question", color: "d876e3", description: "Usage question" }
+# area
+- { name: "area: sap-content-server", color: "1d76db", description: "SAP Content Server HTTP interface" }
+- { name: "area: rest-api", color: "1d76db", description: "REST API" }
+- { name: "area: graph", color: "1d76db", description: "Microsoft Graph / SharePoint access" }
+- { name: "area: auth", color: "1d76db", description: "Authentication and authorisation" }
+- { name: "area: deployment", color: "1d76db", description: "Docker, Compose, configuration" }
+- { name: "area: observability", color: "1d76db", description: "Logs, metrics, health" }
+# status
+- { name: "status: needs-info", color: "fbca04", description: "Waiting for details from the reporter" }
+- { name: "status: confirmed", color: "0e8a16", description: "Reproduced or accepted" }
+- { name: "status: blocked", color: "e99695", description: "Blocked by something external" }
+# SAP validation
+- { name: "sap: tested-scenario", color: "5319e7", description: "Report of a tested SAP scenario" }
+- { name: "sap: unverified", color: "c5def5", description: "Behaviour not yet verified on a real SAP system" }
+# community
+- { name: "good first issue", color: "7057ff", description: "Good for newcomers" }
+- { name: "help wanted", color: "008672", description: "Extra attention is welcome" }
+- { name: "dependencies", color: "0366d6", description: "Dependency update" }

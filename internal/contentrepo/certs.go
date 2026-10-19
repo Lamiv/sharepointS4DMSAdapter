@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/storage"
 )
@@ -209,14 +210,14 @@ func (c *certStore) put(ctx context.Context, cr *contentRep, authID string, cert
 func (c *certStore) setActive(ctx context.Context, contRep, authID string, active bool) (*certRecord, error) {
 	cr, ok := c.reps[contRep]
 	if !ok {
-		return nil, fmt.Errorf("unknown contRep %q", contRep)
+		return nil, apperr.New(apperr.CSContRepUnknown, "content repository %q is not configured", contRep).WithStatus(400)
 	}
 	if err := c.reload(ctx, 0); err != nil {
 		return nil, err
 	}
 	prev := c.lookup(contRep, authID)
 	if prev == nil {
-		return nil, fmt.Errorf("no certificate received for contRep %q authId %q; use 'Send certificate' in OAC0 first", contRep, authID)
+		return nil, apperr.New(apperr.CertNotReceived, "no certificate was received for contRep %q and authId %q; certificates known for %q: %s", contRep, authID, contRep, c.knownFor(contRep))
 	}
 	rec := *prev
 	rec.Active = active
@@ -227,4 +228,25 @@ func (c *certStore) setActive(ctx context.Context, contRep, authID string, activ
 		rec.ActivatedAt = nil
 	}
 	return &rec, c.write(ctx, cr, &rec)
+}
+
+// knownFor lists the authIds for which certificates exist in contRep.
+func (c *certStore) knownFor(contRep string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []string
+	for _, r := range c.recs {
+		if r.ContRep == contRep {
+			state := "inactive"
+			if r.Active {
+				state = "active"
+			}
+			out = append(out, fmt.Sprintf("%q (%s)", r.AuthID, state))
+		}
+	}
+	if len(out) == 0 {
+		return "none; send the certificate from OAC0"
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
 }
