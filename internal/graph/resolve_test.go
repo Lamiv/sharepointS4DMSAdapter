@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/graphmock"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/graphmock"
 )
 
 func newClient(t *testing.T) *graph.Client {

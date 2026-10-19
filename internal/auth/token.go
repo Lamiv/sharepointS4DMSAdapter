@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/observability"
 )
 
 // TokenSource returns a bearer token for Microsoft Graph.

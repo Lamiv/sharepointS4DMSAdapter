@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
 )
 
 const testPrefix = "adapter-access-test-"

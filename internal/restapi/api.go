@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/storage"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 type Options struct {

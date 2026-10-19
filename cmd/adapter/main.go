@@ -26,16 +26,16 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"sharepointadapter/internal/accesscheck"
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/contentrepo"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/restapi"
-	"sharepointadapter/internal/storage"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/accesscheck"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/contentrepo"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/restapi"
+	"github.com/Lamiv/zaks-drive/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 // version is set at build time (-X main.version=...).
@@ -221,6 +221,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	// Paging cursors must verify on every instance sharing these credentials.
+	// The "sharepointadapter/cursor" label predates the rename. It is HMAC key material, not a module
+	// path; changing it would invalidate paging cursors that clients still hold.
 	cursorKey := sha256.Sum256([]byte("sharepointadapter/cursor|" + cfg.Graph.TenantID + "|" + cfg.Graph.ClientID + "|" + cfg.Graph.ClientSecret))
 	svc.SetCursorKey(cursorKey[:])
 

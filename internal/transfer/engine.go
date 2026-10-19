@@ -16,9 +16,9 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
 )
 
 var ErrTooLarge = errors.New("upload exceeds maximum size")

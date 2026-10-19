@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
 )
 
 // Classify turns an error from the Graph client into a coded error that

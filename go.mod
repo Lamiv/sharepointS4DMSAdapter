@@ -1,4 +1,4 @@
-module sharepointadapter
+module github.com/Lamiv/zaks-drive
 
 go 1.25
 

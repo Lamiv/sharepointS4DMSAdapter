@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"sharepointadapter/internal/restapi"
+	"github.com/Lamiv/zaks-drive/internal/restapi"
 )
 
 // Regression: paging cursors used to be a base64 Graph URL checked only for

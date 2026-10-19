@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/storage"
 )
 
 // Behaviour follows "SAP Content Server HTTP 4.5 Interface" (ABAP Platform

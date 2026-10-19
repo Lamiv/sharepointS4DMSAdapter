@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"sharepointadapter/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/config"
 )
 
 func TestTokenCachedAndSingleflight(t *testing.T) {

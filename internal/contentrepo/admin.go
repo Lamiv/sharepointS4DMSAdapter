@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/graph"
 )
 
 // RegisterAdmin adds certificate administration (the equivalent of the

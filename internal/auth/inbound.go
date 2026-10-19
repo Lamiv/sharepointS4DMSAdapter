@@ -20,8 +20,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/config"
 )
 
 type Permission string

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
 )
 
 func writeCfg(t *testing.T, body string) string {

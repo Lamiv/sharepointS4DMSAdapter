@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 var (

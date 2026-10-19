@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/observability"
 )
 
 type Options struct {

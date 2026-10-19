@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
 )
 
 // alwaysSigned parameters per the spec ("secKey" page); signedExtra lists
