@@ -187,7 +187,9 @@ Fill in every line:
 | `GRAPH_TENANT_ID` | Directory (tenant) ID |
 | `GRAPH_CLIENT_ID` | Application (client) ID |
 | `GRAPH_CLIENT_SECRET` | The client secret **Value** |
-| `SP_DRIVE_ID` | Leave empty unless your config uses `driveId: ${SP_DRIVE_ID}` |
+| `SHAREPOINT_SITE_URL` | The **site** address, for example `https://contoso.sharepoint.com/sites/SAP_DOCS` (not a link to a library page) |
+| `SHAREPOINT_LIBRARY` | The document library's **display name**, for example `Documents` or `DOCS`. Empty means the site's default library. |
+| `SHAREPOINT_ROOT_PATH` | The folder inside the library where the adapter stores everything, for example `SAP_DMS`. Created automatically; empty means the library root. |
 | `ADAPTER_API_KEY_S4` | Generated above. The key S/4HANA or other back-end systems use for the REST API. |
 | `ADAPTER_API_KEY_FIORI` | Generated above. A read-only key for Fiori/consumers. |
 | `ADMIN_TOKEN` | Generated above. Protects certificate activation. |
@@ -201,26 +203,25 @@ chmod 644 config.yaml      # the container runs as a non-root user and must read
 nano config.yaml
 ```
 
-The example file is fully commented. You must change two sections.
-
-**`repositories:`** says where documents are stored. Identify the library in **one** of these ways:
-
-| You have | Use | App permission needed |
-|---|---|---|
-| A SharePoint site URL | `siteUrl:` (+ `driveName:` if the site has several libraries) | `Sites.ReadWrite.All`, or `Sites.Selected` with a site grant |
-| A OneDrive for Business (a user's personal storage) | `userId:` = the user's login name, e.g. `jane@contoso.com` | `Files.ReadWrite.All` |
-| The Graph drive ID (starts with `b!`) | `driveId:` | `Files.ReadWrite.All` or `Sites.ReadWrite.All` |
-
-Example, replacing the two examples in the file with one. **Delete any example you don't use**: The adapter retries at startup until every repository listed resolves.
+The example file is fully commented. **The SharePoint location is not in this file any more**: `repositories:` reads it from `deploy/.env` (`SHAREPOINT_SITE_URL`, `SHAREPOINT_LIBRARY`, `SHAREPOINT_ROOT_PATH`, section 6.1), so the same file works on every server and a wrong value is fixed in one place. If one of these variables is empty the adapter says which, and what to do (see the error code `CFG_REPO_LOCATION_MISSING` in [docs/error-codes.md](docs/error-codes.md)).
 
 ```yaml
 repositories:
   - id: DMS
-    siteUrl: https://<tenant>.sharepoint.com/sites/<site>
-    # driveName: Documents      # only if the site has several document libraries
-    rootPath: SAP_DMS           # folder inside the library; created automatically
-  # OneDrive instead of a site:  userId: jane@contoso.com   (instead of siteUrl)
+    siteUrl: ${SHAREPOINT_SITE_URL}
+    driveName: ${SHAREPOINT_LIBRARY}
+    rootPath: ${SHAREPOINT_ROOT_PATH}
 ```
+
+Use something other than a site address only if you need to. Identify the library in **one** of these ways:
+
+| You have | Use | App permission needed |
+|---|---|---|
+| A SharePoint site URL (the normal case) | `siteUrl:` (+ `driveName:`) from `.env` as above | `Sites.ReadWrite.All`, or `Sites.Selected` with a site grant |
+| A OneDrive for Business (a user's personal storage) | `userId: jane@contoso.com` instead of `siteUrl:` (write it into config.yaml, or add your own `SHAREPOINT_USER_ID` variable) | `Files.ReadWrite.All` |
+| The Graph drive ID (starts with `b!`) | `driveId:` | `Files.ReadWrite.All` or `Sites.ReadWrite.All` |
+
+The adapter retries at startup until every repository listed resolves, and `/readyz` explains what is missing meanwhile.
 
 **`contentServer:`** sets up the SAP Content Server interface. The `contRep` value must equal the repository ID your SAP Basis team creates in OAC0. Agree on it with them first, e.g. `Z1`.
 
@@ -385,7 +386,7 @@ All commands run from `/opt/sharepoint-adapter`:
 | `adapter check` reports FAIL | A permission or grant is missing | Each FAIL names the cause and the fix; the first failure is usually the root cause and later checks show SKIP until it is fixed. |
 | `readyz`/log: `the access token has NO application permissions (roles)` | Graph **application** permissions are missing, or admin consent wasn't granted | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–5. |
 | `readyz`/log: `401 generalException` with `token roles: ...` | The token's permissions don't cover this lookup: `siteUrl` needs `Sites.*` permissions, a OneDrive `userId` needs `Files.ReadWrite.All` | Add the matching permission and grant admin consent, or switch between `siteUrl` and `userId` (see [section 6.2](#62-settings-deployconfigyaml)). |
-| Log: `repository initialisation failed; retrying` | `siteUrl`, `userId`, `driveName` or permissions are wrong, or an unused example repository is still in the config | The message after it says why. Rerun [section 3](#3-test-the-microsoft-credentials) with the same values. |
+| Log: `repository initialisation failed; retrying` | `SHAREPOINT_SITE_URL`, `SHAREPOINT_LIBRARY` (or `userId`) or the permissions are wrong | The message after it says why. Rerun [section 3](#3-test-the-microsoft-credentials) with the same values. |
 | Log: `open /etc/adapter/config.yaml: permission denied` | The container runs as a non-root user and can't read the file | `chmod 644 deploy/config.yaml` (it holds no secrets; those are in `.env`). |
 | `readyz` → `not ready` with 403 | Missing Graph permission or admin consent; `Sites.Selected` without a site grant | [Section 2](#2-register-the-app-in-microsoft-entra-id), steps 4–6 |
 | REST API returns 401 | Missing or wrong `X-API-Key` | Use the key from `.env` exactly. |

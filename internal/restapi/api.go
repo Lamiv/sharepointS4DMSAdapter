@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/graph"
 	"sharepointadapter/internal/observability"
@@ -77,7 +78,7 @@ func (a *API) authenticated(next http.HandlerFunc) http.Handler {
 		p, err := a.auth.Authenticate(r)
 		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sharepoint-adapter"`)
-			problem(w, r, http.StatusUnauthorized, "Unauthorized", "valid API key or bearer token required")
+			a.fail(w, r, err)
 			return
 		}
 		next(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
@@ -88,14 +89,18 @@ func (a *API) withRepo(perm auth.Permission, h repoHandler) http.Handler {
 	return a.authenticated(func(w http.ResponseWriter, r *http.Request) {
 		repo, err := a.svc.Repository(r.PathValue("repo"))
 		p := auth.PrincipalFrom(r.Context())
-		// Unknown repositories and missing permission look the same to avoid
-		// leaking repository names.
+		// Unknown repositories and repositories the credential cannot even
+		// read look the same, so repository names are not leaked.
 		if err != nil || !p.Can(repo.ID, perm) {
 			if err == nil && p.Can(repo.ID, auth.PermRead) {
-				problem(w, r, http.StatusForbidden, "Forbidden", fmt.Sprintf("missing %s permission", perm))
+				a.fail(w, r, apperr.New(apperr.AuthPermissionDenied,
+					"%s may read repository %q but this operation needs the %q permission (granted: %s)",
+					p.Name, repo.ID, perm, permList(p)).
+					WithFix("Use a key with %q permission on %q, or add it to this key's `permissions` / `repositories` in auth.apiKeys (config.yaml) and recreate the container.", perm, repo.ID))
 				return
 			}
-			problem(w, r, http.StatusNotFound, "Not Found", "repository not found")
+			a.fail(w, r, apperr.New(apperr.RepoNotFound, "repository %q does not exist or %s may not use it; repositories available to this credential: %s",
+				r.PathValue("repo"), p.Name, a.visibleRepos(p)))
 			return
 		}
 		h(w, r, repo)
@@ -155,7 +160,7 @@ func (a *API) download(w http.ResponseWriter, r *http.Request, repo *storage.Rep
 		return
 	}
 	if it.Folder != nil {
-		problem(w, r, http.StatusBadRequest, "Bad Request", "item is a folder")
+		a.fail(w, r, apperr.New(apperr.ItemIsFolder, "item %s is a folder and has no content", it.ID))
 		return
 	}
 	// cTag changes only when content changes: ideal validator for caches.
@@ -229,7 +234,7 @@ func (a *API) thumbnail(w http.ResponseWriter, r *http.Request, repo *storage.Re
 		size = "medium"
 	case "small", "medium", "large":
 	default:
-		problem(w, r, http.StatusBadRequest, "Bad Request", "size must be small, medium or large")
+		a.fail(w, r, apperr.New(apperr.ThumbnailSizeInvalid, "size is %q; use small, medium or large", size))
 		return
 	}
 	resp, err := a.svc.Thumbnail(r.Context(), repo, r.PathValue("id"), size)
@@ -313,7 +318,7 @@ func (a *API) createFolder(w http.ResponseWriter, r *http.Request, repo *storage
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
-		problem(w, r, http.StatusBadRequest, "Bad Request", "body must be JSON {\"path\": \"...\"}")
+		a.fail(w, r, apperr.New(apperr.RequestBodyInvalid, "the body must be JSON like {\"path\": \"folder/subfolder\"}: %v", err))
 		return
 	}
 	it, err := a.svc.CreateFolder(r.Context(), repo, body.Path)
@@ -347,11 +352,11 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request, repo *storage.Repos
 		for {
 			part, err := mr.NextPart()
 			if err == io.EOF {
-				problem(w, r, http.StatusBadRequest, "Bad Request", "multipart body has no file part")
+				a.fail(w, r, apperr.New(apperr.UploadNoFilePart, "the multipart body ended without a part that has a filename"))
 				return
 			}
 			if err != nil {
-				a.fail(w, r, fmt.Errorf("%w: %v", storage.ErrInvalid, err))
+				a.fail(w, r, apperr.New(apperr.UploadBodyInvalid, "the multipart body could not be read: %v", err).Wrap(storage.ErrInvalid))
 				return
 			}
 			if part.FileName() == "" {
@@ -379,7 +384,7 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request, repo *storage.Repos
 		req.Body = r.Body
 	}
 	if req.Name == "" {
-		problem(w, r, http.StatusBadRequest, "Bad Request", "file name required (fileName query, Slug or X-File-Name header, or multipart filename)")
+		a.fail(w, r, apperr.New(apperr.UploadFilenameRequired, "no file name found in the fileName query, the Slug or X-File-Name header, the Content-Disposition header or a multipart filename"))
 		return
 	}
 	switch conflict {
@@ -390,7 +395,7 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request, repo *storage.Repos
 	case "fail":
 		req.Conflict = graph.ConflictFail
 	default:
-		problem(w, r, http.StatusBadRequest, "Bad Request", "conflict must be rename, replace or fail")
+		a.fail(w, r, apperr.New(apperr.UploadConflictInvalid, "conflict is %q; use rename, replace or fail", conflict))
 		return
 	}
 	it, err := a.svc.Upload(r.Context(), repo, req)
@@ -506,56 +511,81 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func problem(w http.ResponseWriter, r *http.Request, status int, title, detail string) {
+// writeProblem sends an RFC 7807 response extended with the error code, a
+// hint (the fix) and a link that explains the code.
+func writeProblem(w http.ResponseWriter, r *http.Request, e *apperr.Error) {
+	status := e.Status()
+	if e.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(max(int(e.RetryAfter.Seconds()+0.5), 1)))
+	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"type":      "about:blank",
-		"title":     title,
+	detail := e.Detail
+	if detail == "" {
+		detail = e.Title()
+	}
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false) // keep <key> readable in hints
+	_ = enc.Encode(map[string]any{
+		"type":      e.URL(),
+		"title":     e.Title(),
 		"status":    status,
+		"code":      e.Code,
 		"detail":    detail,
+		"hint":      e.Fix(),
 		"requestId": observability.RequestID(r.Context()),
 	})
 }
 
-// fail maps domain and Graph errors to HTTP problem responses.
+// fail answers with the coded error behind err. Errors without a code are
+// classified (SharePoint/Graph, size limits, cancellation) or reported as an
+// internal error that quotes the message.
 func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var mbe *http.MaxBytesError
-	var ge *graph.Error
-	switch {
-	case errors.Is(err, context.Canceled):
-		// Client went away; nothing useful to send.
-		w.WriteHeader(499)
-	case errors.Is(err, storage.ErrNotFound):
-		problem(w, r, http.StatusNotFound, "Not Found", "document not found")
-	case errors.Is(err, storage.ErrInvalid):
-		problem(w, r, http.StatusBadRequest, "Bad Request", err.Error())
-	case errors.Is(err, storage.ErrReadOnly), errors.Is(err, storage.ErrReserved):
-		problem(w, r, http.StatusForbidden, "Forbidden", err.Error())
-	case errors.Is(err, transfer.ErrTooLarge), errors.As(err, &mbe):
-		problem(w, r, http.StatusRequestEntityTooLarge, "Payload Too Large", fmt.Sprintf("maximum upload size is %d bytes", a.opts.MaxUpload))
-	case errors.Is(err, context.DeadlineExceeded):
-		problem(w, r, http.StatusGatewayTimeout, "Gateway Timeout", "SharePoint did not respond in time")
-	case errors.As(err, &ge):
-		switch {
-		case ge.Status == http.StatusConflict:
-			problem(w, r, http.StatusConflict, "Conflict", ge.Message)
-		case ge.Status == http.StatusPreconditionFailed:
-			problem(w, r, http.StatusPreconditionFailed, "Precondition Failed", "document was modified (ETag mismatch)")
-		case ge.Status == http.StatusBadRequest:
-			problem(w, r, http.StatusBadRequest, "Bad Request", ge.Message)
-		case ge.Status == http.StatusTooManyRequests || ge.Status == http.StatusServiceUnavailable:
-			secs := int(ge.RetryAfter.Seconds())
-			w.Header().Set("Retry-After", strconv.Itoa(max(secs, 1)))
-			problem(w, r, http.StatusServiceUnavailable, "Service Unavailable", "SharePoint is throttling requests; retry later")
-		default:
-			a.log.Error("graph error", "request_id", observability.RequestID(r.Context()), "status", ge.Status, "code", ge.Code, "message", ge.Message)
-			problem(w, r, http.StatusBadGateway, "Bad Gateway", "SharePoint request failed")
-		}
-	default:
-		a.log.Error("request failed", "request_id", observability.RequestID(r.Context()), "error", err)
-		problem(w, r, http.StatusBadGateway, "Bad Gateway", "SharePoint request failed")
+	if errors.Is(err, context.Canceled) {
+		w.WriteHeader(499) // the client went away; nothing useful to send
+		return
 	}
+	e, ok := apperr.As(err)
+	if !ok {
+		switch {
+		case errors.As(err, &mbe):
+			e = apperr.New(apperr.UploadTooLarge, "the request body is larger than %d bytes (the limit is transfer.maxUploadBytes)", mbe.Limit).Wrap(transfer.ErrTooLarge)
+		case graph.Classify(err) != nil:
+			e = graph.Classify(err)
+		default:
+			e = apperr.New(apperr.InternalError, "%v", err)
+		}
+	}
+	rid := observability.RequestID(r.Context())
+	if e.Status() >= 500 {
+		a.log.Error("request failed", "request_id", rid, "code", e.Code, "detail", e.Detail, "error", err)
+	} else {
+		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status(), "detail", e.Detail)
+	}
+	writeProblem(w, r, e)
+}
+
+func permList(p *auth.Principal) string {
+	var out []string
+	for _, x := range p.Permissions {
+		out = append(out, string(x))
+	}
+	return strings.Join(out, ", ")
+}
+
+// visibleRepos lists the repository IDs the principal can read.
+func (a *API) visibleRepos(p *auth.Principal) string {
+	var out []string
+	for _, repo := range a.svc.Repositories() {
+		if p.Can(repo.ID, auth.PermRead) {
+			out = append(out, repo.ID)
+		}
+	}
+	if len(out) == 0 {
+		return "none"
+	}
+	return strings.Join(out, ", ")
 }
 
 func (a *API) cors(next http.Handler) http.Handler {

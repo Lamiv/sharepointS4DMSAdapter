@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"sharepointadapter/internal/accesscheck"
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/auth"
 	"sharepointadapter/internal/config"
 	"sharepointadapter/internal/contentrepo"
@@ -47,10 +48,15 @@ func main() {
 	if flag.Arg(0) == "certs" {
 		os.Exit(certsCLI(flag.Args()[1:]))
 	}
+	if flag.Arg(0) == "errors" {
+		// Prints the error-code catalogue as Markdown (docs/error-codes.md).
+		fmt.Print(apperr.Markdown())
+		return
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "configuration error:", err)
+		fmt.Fprintln(os.Stderr, "The adapter cannot start because of its configuration:\n"+apperr.Format(err))
 		os.Exit(2)
 	}
 	log := observability.NewLogger(cfg.Log.Level, cfg.Log.Format)
@@ -59,7 +65,12 @@ func main() {
 		os.Exit(runCheck(cfg))
 	}
 	if err := run(cfg, log); err != nil {
-		log.Error("adapter stopped", "error", err)
+		if ae, ok := apperr.As(err); ok {
+			log.Error("adapter stopped", "code", ae.Code, "error", ae.Detail, "fix", ae.Fix())
+		} else {
+			log.Error("adapter stopped", "error", err)
+		}
+		fmt.Fprintln(os.Stderr, "The adapter stopped:\n"+apperr.Format(err))
 		os.Exit(1)
 	}
 }
@@ -104,6 +115,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 			err = s.ListenAndServe()
 		}
 		if !errors.Is(err, http.ErrServerClosed) {
+			if errors.Is(err, syscall.EADDRINUSE) {
+				err = apperr.New(apperr.StartupPortInUse, "cannot listen on %s: the address is already in use inside the container (do restAddr, contentRepoAddr and adminAddr differ?)", s.Addr).Wrap(err)
+			}
 			errCh <- fmt.Errorf("%s: %w", s.Addr, err)
 		}
 	}
@@ -125,8 +139,13 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 		wait := min(time.Duration(attempt)*2*time.Second, 30*time.Second)
 		hint := initHint(ctx, err, tokens)
-		status.Store("not ready: repository initialisation failed: " + err.Error() + hint)
-		log.Error("repository initialisation failed; retrying", "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
+		reason := err.Error()
+		code := apperr.StartupRepositoryFailed
+		if ae := graph.Classify(err); ae != nil {
+			reason, code = ae.Message(), ae.Code
+		}
+		status.Store("not ready: the configured SharePoint location cannot be used yet. " + reason + hint)
+		log.Error("repository initialisation failed; retrying", "code", code, "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -331,10 +350,20 @@ func certsCLI(args []string) int {
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.CLIAdminUnreachable, "no answer from %s: %v", base, err)))
 		return 1
 	}
 	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.CLIAdminRouteMissing, "%s answered 404 for the certificate endpoints", base)))
+		return 1
+	case http.StatusUnauthorized:
+		if os.Getenv("ADMIN_TOKEN") == "" {
+			fmt.Fprintln(os.Stderr, apperr.Format(apperr.New(apperr.AuthAdminUnauthorized, "ADMIN_TOKEN is not set in this environment, so the request carried no token")))
+			return 1
+		}
+	}
 	_, _ = io.Copy(os.Stdout, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return 1
@@ -346,24 +375,21 @@ func certsCLI(args []string) int {
 // Entra issued a token almost always means the token carries no (or the
 // wrong) application permissions, so the token's roles are shown.
 func initHint(ctx context.Context, err error, tokens *auth.ClientCredentials) string {
-	var ge *graph.Error
-	if !errors.As(err, &ge) {
+	ae := graph.Classify(err)
+	if ae == nil || (ae.Code != apperr.SPUnauthorized && ae.Code != apperr.SPAccessDenied) {
 		return ""
 	}
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	tok, terr := tokens.Token(tctx)
 	if terr != nil {
-		return " | the access token itself could not be obtained: " + terr.Error()
+		return ""
 	}
 	roles := auth.TokenRoles(tok)
-	switch {
-	case ge.Status == http.StatusUnauthorized && len(roles) == 0:
+	if len(roles) == 0 {
 		return " | the access token has NO application permissions (roles): add Microsoft Graph APPLICATION permissions to the app registration and click 'Grant admin consent'"
-	case ge.Status == http.StatusUnauthorized || ge.Status == http.StatusForbidden:
-		return " | token roles: " + strings.Join(roles, ",") + " | these do not allow this lookup: siteUrl needs Sites.Read.All or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; also check that admin consent was granted"
 	}
-	return " | token roles: " + strings.Join(roles, ",")
+	return " | the token carries these roles: " + strings.Join(roles, ", ") + ". siteUrl needs Sites.Selected plus a site grant, or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; check that admin consent was granted"
 }
 
 // runCheck implements `adapter check`: it verifies every access the adapter

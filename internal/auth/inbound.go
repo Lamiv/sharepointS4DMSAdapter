@@ -20,6 +20,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"sharepointadapter/internal/apperr"
 	"sharepointadapter/internal/config"
 )
 
@@ -65,7 +66,7 @@ func NewAuthenticator(cfg config.AuthConfig, hc *http.Client) (*Authenticator, e
 			h = hex.EncodeToString(sum[:])
 		}
 		if len(h) != 64 {
-			return nil, fmt.Errorf("api key %q: provide key or 64-char sha256", k.Name)
+			return nil, apperr.New(apperr.CfgAPIKeyInvalid, "auth.apiKeys entry %q has no key and no 64-character sha256", k.Name)
 		}
 		perms := parsePerms(k.Permissions)
 		if len(perms) == 0 {
@@ -80,33 +81,38 @@ func NewAuthenticator(cfg config.AuthConfig, hc *http.Client) (*Authenticator, e
 }
 
 // Authenticate resolves the caller from X-API-Key or an Authorization header.
+// Errors are *apperr.Error values that say what was wrong with the credential.
 func (a *Authenticator) Authenticate(r *http.Request) (*Principal, error) {
 	if a.disabled {
 		return &Principal{Name: "anonymous", Permissions: []Permission{PermRead, PermWrite, PermDelete}}, nil
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
-		return a.byKey(key)
+		return a.byKey(key, "the X-API-Key header")
 	}
 	authz := r.Header.Get("Authorization")
+	if authz == "" {
+		return nil, apperr.New(apperr.AuthMissingCredentials, "no X-API-Key header and no Authorization header").Wrap(ErrUnauthenticated)
+	}
 	scheme, cred, _ := strings.Cut(authz, " ")
 	switch {
 	case strings.EqualFold(scheme, "ApiKey"):
-		return a.byKey(cred)
+		return a.byKey(cred, "the Authorization: ApiKey value")
 	case strings.EqualFold(scheme, "Bearer") && a.jwt != nil:
 		return a.jwt.verify(r.Context(), cred)
 	case strings.EqualFold(scheme, "Bearer"):
-		// Allow API keys as bearer tokens when JWT is not configured.
-		return a.byKey(cred)
+		// API keys are accepted as bearer tokens when JWT is not configured.
+		return a.byKey(cred, "the bearer token (auth.jwt is not configured, so it was tried as an API key)")
 	}
-	return nil, ErrUnauthenticated
+	return nil, apperr.New(apperr.AuthMissingCredentials,
+		"the Authorization header uses the scheme %q; use `Bearer <token>` or `ApiKey <key>`", scheme).Wrap(ErrUnauthenticated)
 }
 
-func (a *Authenticator) byKey(key string) (*Principal, error) {
+func (a *Authenticator) byKey(key, where string) (*Principal, error) {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
 	if p, ok := a.keys[hex.EncodeToString(sum[:])]; ok {
 		return p, nil
 	}
-	return nil, ErrUnauthenticated
+	return nil, apperr.New(apperr.AuthInvalidAPIKey, "%s does not match any configured API key", where).Wrap(ErrUnauthenticated)
 }
 
 func parsePerms(in []string) []Permission {
@@ -160,7 +166,7 @@ func (v *jwtVerifier) verify(ctx context.Context, raw string) (*Principal, error
 		return v.key(ctx, kid)
 	}, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnauthenticated, err)
+		return nil, apperr.New(apperr.AuthJWTInvalid, "%s", jwtReason(err)).Wrap(ErrUnauthenticated)
 	}
 	name, _ := claims["sub"].(string)
 	if n, ok := claims["preferred_username"].(string); ok && n != "" {
@@ -253,4 +259,25 @@ func (v *jwtVerifier) refresh(ctx context.Context) error {
 	v.fetchedAt = time.Now()
 	v.mu.Unlock()
 	return nil
+}
+
+// jwtReason turns the JWT library's error into a sentence about what to fix.
+func jwtReason(err error) string {
+	switch {
+	case errors.Is(err, jwt.ErrTokenExpired):
+		return "the token has expired"
+	case errors.Is(err, jwt.ErrTokenNotValidYet):
+		return "the token is not valid yet (clock difference between the issuer and this server?)"
+	case errors.Is(err, jwt.ErrTokenInvalidIssuer):
+		return "the token's issuer does not match auth.jwt.issuer"
+	case errors.Is(err, jwt.ErrTokenInvalidAudience):
+		return "the token's audience does not match auth.jwt.audience"
+	case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+		return "the token's signature is invalid"
+	case errors.Is(err, jwt.ErrTokenMalformed):
+		return "the bearer value is not a JWT"
+	case errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
+		return "the token has no expiry (exp) claim"
+	}
+	return "the token could not be verified: " + err.Error()
 }

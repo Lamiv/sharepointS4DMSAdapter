@@ -45,16 +45,18 @@ auth:
   #   rolesClaim: roles
   #   rolePrefix: "Documents."           # Documents.read -> read
 
+# Where documents are stored. The location comes from deploy/.env, so this file
+# does not need to change per installation:
+#   SHAREPOINT_SITE_URL   site address, e.g. https://contoso.sharepoint.com/sites/SAP_DOCS
+#   SHAREPOINT_LIBRARY    document library display name (empty = the site's default library)
+#   SHAREPOINT_ROOT_PATH  folder inside the library for everything the adapter stores
+# Alternatives to siteUrl (use ONE): userId (a OneDrive for Business, e.g. jane@contoso.com;
+# needs Files.ReadWrite.All), siteId, or driveId (a Graph drive ID).
 repositories:
   - id: DMS
-    # Identify the library by ONE of: siteUrl (+ driveName), siteId, driveId, or
-    # userId (a OneDrive for Business, e.g. jane@contoso.com; needs Files.ReadWrite.All).
-    siteUrl: https://contoso.sharepoint.com/sites/SAPDocuments
-    driveName: Documents
-    rootPath: S4HANA/DMS
-  - id: ATTACHMENTS
-    driveId: ${SP_DRIVE_ID}
-    rootPath: S4HANA/Attachments
+    siteUrl: ${SHAREPOINT_SITE_URL}
+    driveName: ${SHAREPOINT_LIBRARY}
+    rootPath: ${SHAREPOINT_ROOT_PATH}
 
 # SAP Content Server HTTP interface (OAC0 storage type "HTTP content server").
 contentServer:
@@ -64,7 +66,7 @@ contentServer:
   repositories:
     - contRep: Z1               # content repository ID created in OAC0
       description: S/4HANA DMS originals
-      repository: DMS           # storage repository above (library + rootPath)
+      repository: DMS           # the repository id above (library + rootPath)
       folder: ContentServer/Z1  # below the repository root
       signature: required       # required | optional (honours docProt) | none - match OAC0 "Signature"
 

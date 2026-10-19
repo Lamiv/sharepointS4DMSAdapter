@@ -66,7 +66,7 @@ func TestMissingLibraryFailsAndSkipsDependents(t *testing.T) {
 		!strings.Contains(out.String(), "[SKIP] [DMS] Read: download and compare") {
 		t.Fatalf("exit %d:\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "fix     : not found:") {
+	if !strings.Contains(out.String(), "fix     : Check SHAREPOINT_SITE_URL") {
 		t.Errorf("expected a fix hint:\n%s", out.String())
 	}
 }

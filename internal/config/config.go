@@ -5,12 +5,19 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"net"
+	"net/url"
 	"os"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"sharepointadapter/internal/apperr"
 )
 
 type Config struct {
@@ -22,6 +29,11 @@ type Config struct {
 	// ContentServer configures the SAP Content Server HTTP interface.
 	ContentServer ContentServerConfig `yaml:"contentServer"`
 	Log           LogConfig           `yaml:"log"`
+
+	// emptyRefs holds the ${VAR} names the YAML file references whose
+	// environment variable is empty or unset; used to explain validation
+	// errors ("SHAREPOINT_SITE_URL is empty") instead of a bare "missing".
+	emptyRefs map[string]bool
 }
 
 type ContentServerConfig struct {
@@ -181,17 +193,31 @@ func Default() Config {
 	}
 }
 
+var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
 // Load reads the YAML file at path (optional; "" skips) and applies env overrides.
 func Load(path string) (Config, error) {
 	cfg := Default()
 	if path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return cfg, fmt.Errorf("read config: %w", err)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+				return cfg, apperr.New(apperr.CfgFileNotFound, "configuration file %q does not exist", path).Wrap(err)
+			case errors.Is(err, fs.ErrPermission):
+				return cfg, apperr.New(apperr.CfgFileUnreadable, "cannot read %q: permission denied", path).Wrap(err)
+			}
+			return cfg, apperr.New(apperr.CfgFileUnreadable, "cannot read %q: %v", path, err).Wrap(err)
+		}
+		cfg.emptyRefs = map[string]bool{}
+		for _, m := range envRef.FindAllStringSubmatch(string(raw), -1) {
+			if os.Getenv(m[1]) == "" {
+				cfg.emptyRefs[m[1]] = true
+			}
 		}
 		expanded := os.ExpandEnv(string(raw))
 		if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-			return cfg, fmt.Errorf("parse config: %w", err)
+			return cfg, apperr.New(apperr.CfgYAMLInvalid, "%q is not valid YAML: %v", path, err).Wrap(err)
 		}
 	}
 	applyEnv(&cfg)
@@ -263,55 +289,163 @@ func normalize(c *Config) {
 	}
 }
 
+// emptyNote explains which referenced environment variables are empty.
+func (c Config) emptyNote(names ...string) string {
+	var hit []string
+	for _, n := range names {
+		if c.emptyRefs[n] {
+			hit = append(hit, "${"+n+"}")
+		}
+	}
+	if len(hit) == 0 {
+		return ""
+	}
+	return " (config.yaml references " + strings.Join(hit, ", ") + ", which is empty or not set: define it in deploy/.env and recreate the container)"
+}
+
+// ParseNetwork parses an IP address or CIDR from contentServer.allowedNetworks.
+func ParseNetwork(s string) (*net.IPNet, error) {
+	if !strings.Contains(s, "/") {
+		if strings.Contains(s, ":") {
+			s += "/128"
+		} else {
+			s += "/32"
+		}
+	}
+	_, n, err := net.ParseCIDR(s)
+	return n, err
+}
+
+var knownInterfaces = map[string]bool{"rest": true, "contentrepo": true}
+
+// Validate checks the configuration. Every problem is reported at once, with
+// the setting, the environment variable behind it and how to fix it.
 func (c Config) Validate() error {
 	var errs []error
-	if c.Graph.TenantID == "" || c.Graph.ClientID == "" || c.Graph.ClientSecret == "" {
-		errs = append(errs, errors.New("graph.tenantId, graph.clientId and graph.clientSecret are required"))
+	add := func(e *apperr.Error) { errs = append(errs, e) }
+
+	var missing []string
+	for _, f := range []struct{ val, key, env string }{
+		{c.Graph.TenantID, "graph.tenantId", "GRAPH_TENANT_ID"},
+		{c.Graph.ClientID, "graph.clientId", "GRAPH_CLIENT_ID"},
+		{c.Graph.ClientSecret, "graph.clientSecret", "GRAPH_CLIENT_SECRET"},
+	} {
+		if f.val == "" {
+			missing = append(missing, f.key+" ("+f.env+")")
+		}
 	}
+	if len(missing) > 0 {
+		add(apperr.New(apperr.CfgGraphCredentials, "empty: %s%s", strings.Join(missing, ", "),
+			c.emptyNote("GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET")))
+	}
+
+	for _, i := range c.Server.Interfaces {
+		if !knownInterfaces[strings.ToLower(i)] {
+			add(apperr.New(apperr.CfgInterfaceUnknown, "server.interfaces contains %q; allowed values are rest and contentrepo", i))
+		}
+	}
+	if len(c.Server.Interfaces) == 0 {
+		add(apperr.New(apperr.CfgNoInterfaces, "server.interfaces is empty (check also the ADAPTER_INTERFACES variable)"))
+	}
+
 	if len(c.Repositories) == 0 {
-		errs = append(errs, errors.New("at least one repository must be configured"))
+		add(apperr.New(apperr.CfgNoRepositories, "the `repositories:` list is empty"))
 	}
 	seen := map[string]bool{}
-	for _, r := range c.Repositories {
-		if r.ID == "" {
-			errs = append(errs, errors.New("repository id is required"))
+	for i, r := range c.Repositories {
+		name := r.ID
+		if name == "" {
+			name = fmt.Sprintf("#%d", i+1)
+			add(apperr.New(apperr.CfgRepoIDMissing, "repositories entry %s has no `id`", name))
 		}
-		if seen[r.ID] {
-			errs = append(errs, fmt.Errorf("duplicate repository id %q", r.ID))
+		if r.ID != "" && seen[r.ID] {
+			add(apperr.New(apperr.CfgRepoIDDuplicate, "repository id %q is used more than once", r.ID))
 		}
 		seen[r.ID] = true
 		if r.DriveID == "" && r.UserID == "" && r.SiteID == "" && r.SiteURL == "" {
-			errs = append(errs, fmt.Errorf("repository %q: one of driveId, userId, siteId or siteUrl is required", r.ID))
+			add(apperr.New(apperr.CfgRepoLocationMissing,
+				"repository %q has no SharePoint location: siteUrl, userId, siteId and driveId are all empty%s", name,
+				c.emptyNote("SHAREPOINT_SITE_URL", "SHAREPOINT_USER_ID", "SP_DRIVE_ID")))
+		}
+		if r.SiteURL != "" {
+			if why := siteURLProblem(r.SiteURL); why != "" {
+				add(apperr.New(apperr.CfgSiteURLInvalid, "repository %q: siteUrl %q %s", name, r.SiteURL, why))
+			}
 		}
 	}
+
 	if c.Server.Enabled("contentrepo") && len(c.ContentServer.Repositories) == 0 {
-		errs = append(errs, errors.New("contentServer.repositories is required when the contentrepo interface is enabled"))
+		add(apperr.New(apperr.CfgCSRepositoriesMissing, "server.interfaces enables contentrepo but contentServer.repositories is empty"))
 	}
 	seenRep := map[string]bool{}
 	for _, cr := range c.ContentServer.Repositories {
 		if cr.ContRep == "" || len(cr.ContRep) > 2 {
-			errs = append(errs, fmt.Errorf("contentServer: contRep %q must be 1-2 characters (OAC0 repository ID)", cr.ContRep))
+			add(apperr.New(apperr.CfgContRepInvalid, "contentServer contRep %q must be 1 or 2 characters, the ID of the content repository in SAP transaction OAC0", cr.ContRep))
 		}
 		if seenRep[cr.ContRep] {
-			errs = append(errs, fmt.Errorf("contentServer: duplicate contRep %q", cr.ContRep))
+			add(apperr.New(apperr.CfgContRepDuplicate, "contRep %q is configured more than once", cr.ContRep))
 		}
 		seenRep[cr.ContRep] = true
 		if !seen[cr.Repository] {
-			errs = append(errs, fmt.Errorf("contentServer: contRep %q references unknown repository %q", cr.ContRep, cr.Repository))
+			add(apperr.New(apperr.CfgContRepRepository, "contRep %q uses repository %q, which is not in `repositories:` (available: %s)",
+				cr.ContRep, cr.Repository, joinKeys(seen)))
 		}
 		switch cr.Signature {
 		case "required", "optional", "none":
 		default:
-			errs = append(errs, fmt.Errorf("contentServer: contRep %q signature must be required, optional or none", cr.ContRep))
+			add(apperr.New(apperr.CfgSignatureInvalid, "contRep %q has signature %q; use required, optional or none", cr.ContRep, cr.Signature))
 		}
 	}
-	if c.Transfer.DownloadMode != "proxy" && c.Transfer.DownloadMode != "redirect" {
-		errs = append(errs, fmt.Errorf("transfer.downloadMode must be proxy or redirect"))
+	for _, n := range c.ContentServer.AllowedNetworks {
+		if _, err := ParseNetwork(n); err != nil {
+			add(apperr.New(apperr.CfgNetworkInvalid, "contentServer.allowedNetworks entry %q is not an IP address or CIDR: %v", n, err))
+		}
 	}
-	if c.Server.Enabled("rest") && !c.Auth.Disabled && len(c.Auth.APIKeys) == 0 && c.Auth.JWT == nil {
-		errs = append(errs, errors.New("auth: configure apiKeys and/or jwt, or set auth.disabled=true"))
+
+	if c.Transfer.DownloadMode != "proxy" && c.Transfer.DownloadMode != "redirect" {
+		add(apperr.New(apperr.CfgDownloadMode, "transfer.downloadMode is %q; use proxy or redirect (or the DOWNLOAD_MODE variable)", c.Transfer.DownloadMode))
+	}
+
+	if c.Server.Enabled("rest") && !c.Auth.Disabled {
+		if len(c.Auth.APIKeys) == 0 && c.Auth.JWT == nil {
+			add(apperr.New(apperr.CfgAuthMissing, "the rest interface is enabled but auth has no apiKeys and no jwt"))
+		}
+		for _, k := range c.Auth.APIKeys {
+			if k.Key == "" && len(k.SHA256) != 64 {
+				add(apperr.New(apperr.CfgAPIKeyInvalid, "auth.apiKeys entry %q has no key and no 64-character sha256%s", k.Name,
+					c.emptyNote("ADAPTER_API_KEY_S4", "ADAPTER_API_KEY_FIORI")))
+			}
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// siteURLProblem explains why s cannot be a SharePoint site URL; "" if fine.
+func siteURLProblem(s string) string {
+	u, err := url.Parse(s)
+	switch {
+	case err != nil || u.Host == "":
+		return "is not a URL; use https://<tenant>.sharepoint.com/sites/<site>"
+	case u.Scheme != "https" && u.Scheme != "http":
+		return "must start with https://"
+	case strings.Contains(strings.ToLower(u.Path), "/forms/") || strings.HasSuffix(strings.ToLower(u.Path), ".aspx"):
+		return "is a page address inside a library; use the site address only (https://<tenant>.sharepoint.com/sites/<site>) and put the library name into driveName / SHAREPOINT_LIBRARY"
+	}
+	return ""
+}
+
+func joinKeys(m map[string]bool) string {
+	var out []string
+	for k := range m {
+		if k != "" {
+			out = append(out, k)
+		}
+	}
+	if len(out) == 0 {
+		return "none"
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
 }
 
 func (s ServerConfig) Enabled(name string) bool {
