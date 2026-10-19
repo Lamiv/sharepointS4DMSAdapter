@@ -1,6 +1,17 @@
 # ZAKS Drive
 
-**Open-Source Enterprise Content Gateway.** An open-source bridge that saves files from SAP S/4HANA and your applications to Microsoft SharePoint Online or OneDrive for Business, through the SAP Content Server HTTP interface and a REST API.
+**Open-Source Enterprise Content Gateway**
+
+Connect SAP S/4HANA and enterprise applications to Microsoft SharePoint Online and OneDrive for Business—without building custom storage integrations.
+
+ZAKS Drive is a lightweight, self-hosted content gateway that provides an SAP-compatible Content Server interface and a REST API for storing, retrieving, and managing documents through Microsoft Graph. Documents are stored in your SharePoint document library or OneDrive, so they stay under the Microsoft 365 security, retention and backup you already run.
+
+Two independent interfaces; use either one or both:
+
+- **SAP Content Server HTTP interface** for SAP DMS, KPro and applicable attachment scenarios (OAC0 content repositories).
+- **REST API** for Fiori applications and other enterprise applications.
+
+ZAKS Drive is a content storage gateway, not a document management application: it has no user interface, workflow or business metadata of its own.
 
 [![CI](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml/badge.svg)](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -10,7 +21,7 @@
 
 ## What it is
 
-ZAKS Drive is one small Go service in a Docker container. SAP sees it as an HTTP content server (transaction OAC0). Your own applications see a REST API. Both store files in a SharePoint document library through Microsoft Graph, so documents sit in the Microsoft 365 you already govern, search and back up. There is no database to run.
+ZAKS Drive is one small Go service in a Docker container. SAP sees it as an HTTP content server (transaction OAC0); your own applications see a REST API. Each interface works on its own, and both store documents in a SharePoint document library through Microsoft Graph. There is no database to run.
 
 ## Why it exists
 

@@ -1,6 +1,6 @@
 # ZAKS Drive documentation
 
-ZAKS Drive is an open-source gateway that lets SAP S/4HANA and custom applications store documents in Microsoft SharePoint Online and OneDrive for Business. Start with the [README](../README.md) for what it is; this index is the way into everything else.
+ZAKS Drive is an open-source content gateway that connects SAP S/4HANA and enterprise applications to Microsoft SharePoint Online and OneDrive for Business through an SAP-compatible Content Server interface and a REST API. Start with the [README](../README.md) for what it is; this index is the way into everything else.
 
 ## Choose your path
 
