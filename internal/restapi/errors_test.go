@@ -35,7 +35,7 @@ func TestErrorsCarryCodeDetailAndHint(t *testing.T) {
 	}{
 		{"no credentials", "GET", "/repositories", "", "", nil, 401, "AUTH_MISSING_CREDENTIALS", []string{"no X-API-Key"}},
 		{"wrong key", "GET", "/repositories", "nope", "", nil, 401, "AUTH_INVALID_API_KEY", []string{"X-API-Key header does not match"}},
-		{"bad scheme", "GET", "/repositories", "", "", map[string]string{"Authorization": "Basic abc"}, 401, "AUTH_MISSING_CREDENTIALS", []string{`"Basic"`, "Bearer"}},
+		{"bad scheme", "GET", "/repositories", "", "", map[string]string{"Authorization": "Basic abc"}, 401, "AUTH_MISSING_CREDENTIALS", []string{"supported scheme", "Bearer"}},
 		{"read-only key cannot write", "POST", "/repositories/DMS/documents?fileName=a.txt", "ro-key", "x", nil, 403, "AUTH_PERMISSION_DENIED", []string{"apikey:ro", `"write"`, "granted: read"}},
 		{"unknown repository lists the visible ones", "GET", "/repositories/NOPE/children", "rw-key", "", nil, 404, "REPO_NOT_FOUND", []string{`"NOPE"`, "DMS"}},
 		{"read-only repository", "POST", "/repositories/RO/documents?fileName=a.txt", "rw-key", "x", nil, 403, "REPO_READ_ONLY", []string{`"RO"`, "readOnly"}},

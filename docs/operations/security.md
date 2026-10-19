@@ -19,9 +19,29 @@ This page states what ZAKS Drive does for security, what depends on how you depl
 - **Reserved content server folder:** the REST API cannot read or modify the folder that holds SAP documents and certificates.
 - **Paging cursors** are HMAC-signed and cannot be altered by clients.
 - **Input limits:** maximum upload size, SharePoint name and path validation before any Graph call, an in-flight request cap (`maxInFlight`) returning 503 beyond it.
-- **Logging hygiene:** requests are logged without `secKey` (it is redacted) and without file contents. No code path logs the client secret or API keys, but request paths and file names are logged, so do not put sensitive data in file names.
+- **Logging policy:** see [Logging policy](#logging-policy) below. Request paths and file names are logged, so do not put sensitive data in file names.
 - **Container hardening in the Compose file:** distroless non-root image, read-only root filesystem, `no-new-privileges`, memory limit, admin port on localhost.
 - **Least-privilege Graph option:** `Sites.Selected` with a per-site grant ([Graph permissions](../microsoft-365/graph-permissions.md)).
+
+## Logging policy
+
+Logs are safe to share in an issue after you remove business identifiers you consider private. The rule, enforced by tests:
+
+**A log line carries only approved fields, never free text from outside the process.**
+
+| Layer | What is logged | What is never logged |
+|---|---|---|
+| REST API | request ID, route, method, path, status, duration, remote address; for failures the error `code`, `status`, catalogue `title` | the error `detail` (it can quote a caller or Microsoft), request or response headers, API keys, `Authorization` values, bodies |
+| Microsoft Graph | operation, attempt, wait, reason category (`throttled`, `server`, `network`, `auth`), HTTP status, Graph's error code (identifier-shaped only), Microsoft's `request-id` | Graph's error message text, response bodies, request URLs (download and upload-session URLs are pre-authenticated), tokens |
+| Authentication | a failure category and code (`AUTH_INVALID_API_KEY`, `TOKEN_FAILED`, ...), granted token roles | credentials, the contents of the `Authorization` header (not even its scheme), Entra's error text, the client secret |
+| SAP Content Server | command, `contRep`, `docId`, `compId`, status, code, title, certificate fingerprint and `authId` | `secKey`, signed query strings (the debug log redacts `secKey`), request headers other than a short allow-list (`Content-Type`, `Content-Length`, ...), file contents |
+| Configuration | the key that is wrong and its code; YAML parser messages have quoted values hidden | secret values |
+
+How it is done: errors are described by `safelog.Summary` (type, code and status, never message text, and never a URL) and text shown to people goes through `safelog.Redact` (URL query strings, bearer tokens, JWTs and credential-shaped parameters removed). Unknown errors are logged by type only. `internal/safelog/policy_test.go` fails the build if a log call takes `err.Error()` or an error's `detail`, and the tests in `internal/restapi` and `internal/contentrepo` inject synthetic secrets into headers, Graph error bodies, connection failures and `secKey` parameters and check that none appears in a log or response.
+
+To investigate a problem, use the request ID from the response or `X-Request-ID`: it appears in every log line for the request and is sent to Microsoft as `client-request-id`. For a failure on Microsoft's side, the logged Microsoft `request-id` is what Microsoft support asks for. Debug level (`LOG_LEVEL=debug`) adds SAP request details but still redacts `secKey` and header values.
+
+Limits: identifiers such as file names, document IDs and site URLs are logged. A name a user chooses can contain anything, so treat logs as confidential business data.
 
 ## Secret management
 

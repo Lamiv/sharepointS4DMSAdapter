@@ -97,4 +97,4 @@ Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter valu
 
 ## Logging and metrics
 
-Every request is logged as JSON with `iface="contentrepo"` and `route="cs:<command>"`; refused requests also log the error code, reason, `contRep`, `docId` and `compId` (never the `secKey`, and never file contents). Prometheus metrics use the same labels; see [monitoring](../operations/monitoring.md).
+Every request is logged as JSON with `iface="contentrepo"` and `route="cs:<command>"`; refused requests also log the error code, status, title, `contRep`, `docId` and `compId` (never the `secKey`, and never file contents). Prometheus metrics use the same labels; see [monitoring](../operations/monitoring.md).

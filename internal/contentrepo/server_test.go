@@ -696,7 +696,7 @@ func TestRefusedRequestsAreLoggedWithReason(t *testing.T) {
 	resp, body := e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "NOPE"), nil, nil)
 	e.expect(resp, body, 404)
 	out := buf.String()
-	for _, want := range []string{"content server request refused", "command=get", "status=404", "contRep=Z2", "docId=NOPE", "reason="} {
+	for _, want := range []string{"content server request refused", "command=get", "status=404", "contRep=Z2", "docId=NOPE", "code=CS_DOC_NOT_FOUND", "title="} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}

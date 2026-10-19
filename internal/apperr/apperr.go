@@ -133,6 +133,12 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Cause }
 
+// LogSummary is what may be written to a log: the code, HTTP status and the
+// catalogue title. Never Detail, which can quote text from a caller or a remote system.
+func (e *Error) LogSummary() string {
+	return fmt.Sprintf("%s (HTTP %d): %s", e.Code, e.Status(), e.Title())
+}
+
 // Message is a single line for channels without structure (the SAP
 // X-ErrorDescription header, log lines): code, what happened, and the fix.
 func (e *Error) Message() string {

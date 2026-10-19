@@ -21,6 +21,7 @@ import (
 	"github.com/Lamiv/zaks-drive/internal/auth"
 	"github.com/Lamiv/zaks-drive/internal/graph"
 	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 	"github.com/Lamiv/zaks-drive/internal/storage"
 	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
@@ -222,7 +223,7 @@ func (a *API) download(w http.ResponseWriter, r *http.Request, repo *storage.Rep
 			return
 		}
 		if ctx.Err() == nil {
-			a.log.Warn("download interrupted", "request_id", observability.RequestID(ctx), "item", it.ID, "bytes", res.Bytes, "error", err)
+			a.log.Warn("download interrupted", "request_id", observability.RequestID(ctx), "item", it.ID, "bytes", res.Bytes, safelog.Err(err))
 		}
 	}
 }
@@ -559,9 +560,9 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	rid := observability.RequestID(r.Context())
 	if e.Status() >= 500 {
-		a.log.Error("request failed", "request_id", rid, "code", e.Code, "detail", e.Detail, "error", err)
+		a.log.Error("request failed", "request_id", rid, "code", e.Code, "status", e.Status(), "title", e.Title(), safelog.Err(err))
 	} else {
-		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status(), "detail", e.Detail)
+		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status(), "title", e.Title())
 	}
 	writeProblem(w, r, e)
 }

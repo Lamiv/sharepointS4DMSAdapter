@@ -22,6 +22,7 @@ import (
 	"github.com/Lamiv/zaks-drive/internal/auth"
 	"github.com/Lamiv/zaks-drive/internal/config"
 	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 const testPrefix = "adapter-access-test-"
@@ -123,7 +124,7 @@ func Run(ctx context.Context, cfg config.Config, gc *graph.Client, tokens auth.T
 	const tokTest = "client-credentials token request to Microsoft Entra ID"
 	token, err := tokens.Token(ctx)
 	if err != nil {
-		rep.add("Access token from Microsoft Entra ID", tokReq, tokTest, fail, err.Error(), hint(err))
+		rep.add("Access token from Microsoft Entra ID", tokReq, tokTest, fail, detail(err), hint(err))
 		rep.skip("Application permission in the token", "a Graph APPLICATION permission with admin consent", "token 'roles' claim", "token")
 		for _, r := range cfg.Repositories {
 			rep.skip("["+r.ID+"] all access checks", "see below", "-", "token")
@@ -203,7 +204,7 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 		if err == nil {
 			err = errors.New("no drive returned")
 		}
-		rep.add(p+"Find the library", resReq, "resolve "+loc, fail, err.Error(), hint(err))
+		rep.add(p+"Find the library", resReq, "resolve "+loc, fail, detail(err), hint(err))
 		for _, n := range []string{"Write: upload a small file", "Read: download and compare", "Resumable upload session (files over 4 MiB)", "Version history", "Delete the test file", "Clean up earlier test files"} {
 			rep.skip(p+n, "access to the library", "-", "find the library")
 		}
@@ -232,7 +233,7 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 	// write
 	item, err := gc.UploadSmallByPath(tctx, drive, full, graph.ConflictReplace, payload, "")
 	if err != nil {
-		rep.add(p+"Write: upload a small file", wr, "PUT "+full+" (creates the folder if missing)", fail, err.Error(),
+		rep.add(p+"Write: upload a small file", wr, "PUT "+full+" (creates the folder if missing)", fail, detail(err),
 			hint(err)+"; if the grant is 'read', change it to 'write'")
 		for _, n := range []string{"Read: download and compare", "Resumable upload session (files over 4 MiB)", "Version history", "Delete the test file"} {
 			rep.skip(p+n, "access to the library", "-", "write")
@@ -271,7 +272,7 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 		return fmt.Sprintf("%d bytes, identical, via %s", len(b), via), nil
 	}
 	if d, err := rd1(); err != nil {
-		rep.add(p+"Read: download and compare", rd, "GET item, GET its download URL, compare bytes", fail, err.Error(), hint(err))
+		rep.add(p+"Read: download and compare", rd, "GET item, GET its download URL, compare bytes", fail, detail(err), hint(err))
 	} else {
 		rep.add(p+"Read: download and compare", rd, "GET item, GET its download URL, compare bytes", pass, d, "")
 	}
@@ -279,7 +280,7 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 	// upload session
 	sess, err := gc.CreateUploadSessionForItem(tctx, drive, item.ID, "")
 	if err != nil {
-		rep.add(p+"Resumable upload session (files over 4 MiB)", wr, "createUploadSession, then cancel", fail, err.Error(),
+		rep.add(p+"Resumable upload session (files over 4 MiB)", wr, "createUploadSession, then cancel", fail, detail(err),
 			hint(err)+"; documents over 4 MiB depend on this")
 	} else {
 		gc.CancelUploadSession(tctx, sess)
@@ -288,14 +289,14 @@ func checkRepo(ctx context.Context, rep *reporter, gc *graph.Client, repo config
 
 	// versions
 	if v, err := gc.Versions(tctx, drive, item.ID); err != nil {
-		rep.add(p+"Version history", rd, "GET versions", fail, err.Error(), hint(err))
+		rep.add(p+"Version history", rd, "GET versions", fail, detail(err), hint(err))
 	} else {
 		rep.add(p+"Version history", rd, "GET versions", pass, fmt.Sprintf("%d version(s)", len(v)), "")
 	}
 
 	// delete
 	if err := gc.Delete(tctx, drive, item.ID, ""); err != nil {
-		rep.add(p+"Delete the test file", "DELETE access (part of 'write')", "DELETE item", fail, err.Error(),
+		rep.add(p+"Delete the test file", "DELETE access (part of 'write')", "DELETE item", fail, detail(err),
 			hint(err)+"; remove "+full+" by hand; SAP deletes need this")
 	} else {
 		rep.add(p+"Delete the test file", "DELETE access (part of 'write')", "DELETE item", pass, "", "")
@@ -312,7 +313,7 @@ func cleanup(ctx context.Context, rep *reporter, p string, gc *graph.Client, dri
 			rep.add(p+nm, "DELETE access", "list the root folder", pass, "folder does not exist yet; nothing to clean", "")
 			return
 		}
-		rep.add(p+nm, "DELETE access", "list the root folder", fail, err.Error(), hint(err))
+		rep.add(p+nm, "DELETE access", "list the root folder", fail, detail(err), hint(err))
 		return
 	}
 	var removed, failed int
@@ -337,4 +338,14 @@ func short(id string) string {
 		return id[:14] + "..."
 	}
 	return id
+}
+
+// detail is what the checklist prints about a failure. Operators paste this output into
+// bug reports, so it carries Microsoft's explanation (scrubbed of URL query strings and
+// credential-shaped values) and never a raw URL or token.
+func detail(err error) string {
+	if ae := graph.Classify(err); ae != nil {
+		return safelog.OneLine(safelog.Redact(ae.Detail))
+	}
+	return safelog.OneLine(safelog.Redact(safelog.Summary(err)))
 }

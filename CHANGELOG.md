@@ -26,4 +26,5 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Security
 
+- Fixed clear-text logging of sensitive data (CodeQL "Clear-text logging of sensitive information"). A caller-supplied `Authorization` value without a space was echoed in the authentication error detail, and from there into the log and the response; Graph and Entra error text and `url.Error` strings (which contain pre-authenticated URLs) could be logged or returned. Logs now carry only approved fields; see the [logging policy](docs/operations/security.md#logging-policy). Regression tests inject synthetic secrets and a policy test guards log calls.
 - Reviewed documentation of controls; see [security](docs/operations/security.md) for what is implemented and what is not.

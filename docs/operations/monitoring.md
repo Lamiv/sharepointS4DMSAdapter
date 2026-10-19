@@ -40,7 +40,7 @@ These are suggestions, not shipped rules:
 
 ## Logs
 
-One JSON line per request with `iface`, `request_id`, `method`, `route`, `path`, `status`, `duration`, `remote`. SAP Content Server routes are `cs:<command>`; refused requests also log the error code and reason. The `request_id` is the `X-Request-ID` header, forwarded to Microsoft as `client-request-id`, so a slow or failed call can be traced on both sides.
+One JSON line per request with `iface`, `request_id`, `method`, `route`, `path`, `status`, `duration`, `remote`. SAP Content Server routes are `cs:<command>`; refused requests also log the application error `code`, HTTP `status` and the catalogue `title` (look the code up in [error codes](../error-codes.md) for the cause and the fix; the full explanation is in the HTTP response, `X-ErrorDescription` for SAP). The text of Microsoft, Entra or caller-supplied messages is deliberately not logged; see the [logging policy](security.md#logging-policy). The `request_id` is the `X-Request-ID` header, forwarded to Microsoft as `client-request-id`, so a slow or failed call can be traced on both sides.
 
 ```bash
 docker compose -f deploy/docker-compose.yml logs -f adapter

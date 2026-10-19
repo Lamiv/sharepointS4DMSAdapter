@@ -22,6 +22,7 @@ import (
 	"github.com/Lamiv/zaks-drive/internal/config"
 	"github.com/Lamiv/zaks-drive/internal/graph"
 	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 	"github.com/Lamiv/zaks-drive/internal/storage"
 	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
@@ -73,7 +74,7 @@ func New(ctx context.Context, svc *storage.Service, cfg config.ContentServerConf
 	}
 	s.certs = newCertStore(svc, s.reps, log)
 	if err := s.certs.reload(ctx, 0); err != nil {
-		log.Warn("could not load content server certificates; will retry", "error", err)
+		log.Warn("could not load content server certificates; will retry", safelog.Err(err))
 	}
 	return s, nil
 }
@@ -102,7 +103,7 @@ func (s *Server) RefreshCertificates(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 			if err := s.certs.reload(ctx, every/2); err != nil {
-				s.log.Warn("certificate reload failed", "error", err)
+				s.log.Warn("certificate reload failed", safelog.Err(err))
 			}
 		}
 	}
@@ -168,7 +169,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		case errors.Is(err, storage.ErrInvalid):
 			e = apperr.New(apperr.CSIDInvalid, "%v", err).Wrap(err)
 		default:
-			e = apperr.New(apperr.InternalError, "%v", err)
+			e = apperr.New(apperr.InternalError, "%s", safelog.Summary(err))
 		}
 	}
 	status := csStatus(e)
@@ -184,9 +185,9 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	s.log.LogAttrs(r.Context(), lvl, "content server request refused",
 		slog.String("request_id", observability.RequestID(r.Context())),
-		slog.String("command", q.cmd), slog.Int("status", status), slog.String("code", e.Code), slog.String("reason", e.Detail),
+		slog.String("command", q.cmd), slog.Int("status", status), slog.String("code", e.Code), slog.String("title", e.Title()),
 		slog.String("contRep", q.get("contRep")), slog.String("docId", q.get("docId")), slog.String("compId", q.get("compId")),
-		slog.String("method", r.Method), slog.String("error", err.Error()))
+		slog.String("method", r.Method), safelog.Err(err))
 	msg := e.Message()
 	if len(msg) > 700 {
 		msg = msg[:700] + "..."

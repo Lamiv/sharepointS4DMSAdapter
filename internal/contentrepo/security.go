@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 // alwaysSigned parameters per the spec ("secKey" page); signedExtra lists
@@ -133,7 +134,7 @@ func (s *Server) verify(r *http.Request, p params, cr *contentRep, need byte) er
 			return nil
 		}
 	}
-	s.log.Warn("secKey verification failed", "contRep", cr.id, "authId", authID, "command", p.cmd, "error", lastErr)
+	s.log.Warn("secKey verification failed", "contRep", cr.id, "authId", authID, "command", p.cmd, safelog.Err(lastErr))
 	return apperr.New(apperr.CSSecKeyInvalid, "the signature does not match the URL and the activated certificate %s for authId %q (%v)", short(rec.Fingerprint), authID, lastErr)
 }
 

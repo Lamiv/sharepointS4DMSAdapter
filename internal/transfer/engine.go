@@ -19,6 +19,7 @@ import (
 	"github.com/Lamiv/zaks-drive/internal/apperr"
 	"github.com/Lamiv/zaks-drive/internal/graph"
 	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 var ErrTooLarge = errors.New("upload exceeds maximum size")
@@ -338,3 +339,5 @@ func (e *Engine) tooLarge(size int64) error {
 	}
 	return apperr.New(apperr.UploadTooLarge, "%s", d).Wrap(ErrTooLarge)
 }
+
+func init() { safelog.Allow(ErrTooLarge) }

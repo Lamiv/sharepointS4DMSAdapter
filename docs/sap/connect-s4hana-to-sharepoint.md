@@ -76,7 +76,7 @@ Run these reports from SE38 against repository `Z1`. They are SAP's own and need
 
 Run the two that were not run before relying on the repository for transports or bulk loads, and record your own results; these results belong to one SAP system and one ZAKS Drive version.
 
-If a report fails, the SAP message alone is rarely enough. The ZAKS Drive log line `request refused` names the code, the reason and the document; look the code up in [error codes](../error-codes.md).
+If a report fails, the SAP message alone is rarely enough. The ZAKS Drive log line `request refused` names the error code, status, title and the document; look the code up in [error codes](../error-codes.md).
 
 ## 6. Use it from DMS
 
