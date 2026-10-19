@@ -7,13 +7,14 @@ ZAKS Drive is an open-source content gateway that connects SAP S/4HANA and enter
 | I want to... | Read |
 |---|---|
 | Try it in five minutes without Microsoft 365 or SAP | [Quickstart](quickstart.md) |
-| Install it on a server | [Installation](installation.md), then [Configuration](configuration.md) |
+| Install it on a server | [The zaks-drive command](cli.md) (installer, setup, start, doctor), [Installation](installation.md), [Configuration](configuration.md) |
+| Operate and troubleshoot it from the shell | [The zaks-drive command](cli.md): status, logs, doctor, update, rollback, support bundle |
 | Connect SAP S/4HANA | [Connect SAP S/4HANA to SharePoint using ZAKS Drive](sap/connect-s4hana-to-sharepoint.md) |
 | Call it from my application | [REST API guide](api/rest-api.md), [openapi.yaml](api/openapi.yaml) |
 | Set up Microsoft 365 | [Entra app registration](microsoft-365/entra-app-registration.md), [Graph permissions](microsoft-365/graph-permissions.md), [SharePoint configuration](microsoft-365/sharepoint-configuration.md) |
 | Run it in production | [Deployment](operations/deployment.md), [Security](operations/security.md), [Monitoring](operations/monitoring.md), [Backup and recovery](operations/backup-recovery.md) |
 | Fix an error | [Error codes](error-codes.md), [Operations troubleshooting](operations/troubleshooting.md), [SAP troubleshooting](sap/troubleshooting.md) |
-| Understand or change the code | [Architecture](architecture.md), [Local development](development/local-development.md), [Testing](development/testing.md) |
+| Understand or change the code | [Architecture](architecture.md), [CLI design](development/cli-design.md) · [Local development](development/local-development.md), [Testing](development/testing.md) |
 
 ## SAP
 

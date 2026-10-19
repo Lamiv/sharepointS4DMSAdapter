@@ -73,6 +73,9 @@ Usage:
   %[5]s version                             print the version
   %[5]s -healthcheck                        probe the local /healthz endpoint (Docker HEALTHCHECK)
 
+This is the SERVER binary (zaks-drive-server; also reachable as zaks-drive and adapter inside the image, for compatibility).
+To install, start, stop, update and troubleshoot a deployment from the host, use the management command: zaks-drive (docs/cli.md).
+
 Configuration: -config <file> or the CONFIG_FILE variable (default in Docker: /etc/adapter/config.yaml).
 Documentation: README.md, docs/index.md and docs/error-codes.md in the repository.
 `, productName, version, productDesc, productSummary, x)

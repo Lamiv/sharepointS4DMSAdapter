@@ -46,17 +46,34 @@ One scheme, one source of truth: the **git tag**.
 3. `LICENSE` unchanged (MIT, with its copyright notice).
 4. A reviewed pull request for the branding work.
 
+## Release artifacts
+
+Each release contains, for linux/amd64 and linux/arm64:
+
+| Artifact | Content |
+|---|---|
+| `zaks-drive_<version>_linux_<arch>.tar.gz` | the management command `zaks-drive`, the server `zaks-drive-server`, `deploy/` (Dockerfile.release, compose, config and .env templates), `spool/.keep`, `release.json` (version, source commit, Go version, architecture), `VERSION`, `LICENSE` |
+| `install.sh` | the verifying installer ([cli guide](../cli.md#install)) |
+| `SHA256SUMS` | SHA-256 of the archives and of `install.sh` |
+| `RELEASE_NOTES.md` | the CHANGELOG section plus install, verification and upgrade instructions |
+| build attestation | GitHub's signed provenance for the archives, `install.sh` and `SHA256SUMS` (`gh attestation verify`) |
+
+**Traceability.** One tag gives one version string everywhere: both binaries in the archive (`-X main.version`), the archive names, `release.json`, the image tag `zaks-drive:<version>` and the labels `org.opencontainers.image.version` and `.revision` (the commit from `release.json`). **Compatibility.** The command and the server of one release have the same version but are separate programs; the rules for mixing versions (compatibility lines, breaking-change approval) are in the [cli guide](../cli.md#compatibility-policy).
+
+**Reproducibility.** `scripts/build-release.sh` uses trimmed paths, no VCS stamping, no timestamps (file times come from `SOURCE_DATE_EPOCH`, default the commit time), sorted tar entries with owner 0 and `gzip -n`. The release workflow and the installer tests build twice and compare the checksums. This holds for a fixed source revision and Go toolchain; it is not claimed across toolchain versions.
+
 ## Steps
 
 1. Update `CHANGELOG.md`: move *Unreleased* entries under the new version and date.
 2. Nothing to edit: the version comes from the tag ([versioning](#versioning)).
-3. Run the checks in [testing](testing.md): `gofmt`, `go vet`, `go test -race ./...`, `python3 scripts/check_docs.py`, Docker build and smoke test.
+3. Run the checks in [testing](testing.md): `gofmt`, `go vet`, `go test ./...`, `go test -race ./...`, `python3 scripts/check_docs.py`, `sh scripts/test_install.sh`, Docker build and smoke test.
 4. Tag: `git tag -a v0.1.0-beta.1 -m "ZAKS Drive 0.1.0-beta.1"` (only after approval) and push the tag.
-5. Run the *Release* workflow manually, giving the tag. It builds Linux binaries for amd64 and arm64 named `zaks-drive_<version>_linux_<arch>`, writes SHA-256 checksums and attaches them to a draft GitHub release. The arm64 binary is cross-compiled and has not been tested on arm64 hardware.
-6. Review the draft, then publish it. Publishing is a separate, manual decision.
+5. Run the *Release* workflow manually, giving the tag. It re-runs the tests and the installer tests, builds the bundles twice and compares them, writes the release notes, attests the build provenance and creates a **draft pre-release** with the artifacts above. Nothing is published by the workflow. The arm64 binaries are cross-compiled and have not been tested on arm64 hardware.
+6. Review the draft (download the artifacts, run `sha256sum -c`, try `install.sh` on a clean machine), then publish it. Publishing is a separate, manual decision.
 
 ## Not done
 
-- Container image publishing to a registry: not set up. Decide on a registry first.
-- SBOM and build provenance: evaluated, not implemented. They can be added to the release workflow (`actions/attest-build-provenance`, an SBOM generator) once publishing is decided.
-- Signing of artifacts.
+- Container image publishing to a registry: not set up (releases are built into a local image by the `zaks-drive` command from the verified server binary). Decide on a registry first; image digests can be documented then.
+- SBOM: evaluated, not implemented (an SBOM generator can be added to the release workflow).
+- Signing keys: GitHub artifact attestations are used; there is no separate GPG or cosign key.
+- The attestation step of the release workflow and `install.sh --verify-attestation` have not been run against a real release yet (the repository has no published release). The installer's behaviour with a failing or passing `gh` is tested with stand-ins.

@@ -1,0 +1,38 @@
+# ZAKS Drive: deployment of a released version (no source checkout needed).
+# Written by `zaks-drive setup`. Do not run it with plain `docker compose`: the zaks-drive
+# command passes ZAKS_DRIVE_VERSION (the image tag it built from a verified release).
+# The service keeps the name "adapter" on purpose; see docs/development/branding-and-compatibility.md.
+services:
+  adapter:
+    image: zaks-drive:${ZAKS_DRIVE_VERSION:?run this through the zaks-drive command}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CONFIG_FILE: /etc/adapter/config.yaml
+    volumes:
+      - ./config.yaml:/etc/adapter/config.yaml:ro
+      - ./tls:/etc/adapter/tls:ro                  # optional: tls.crt and tls.key when ZAKS Drive terminates TLS
+      - spool:/var/spool/adapter                   # disk-backed spool (not RAM)
+    ports:
+      # Host ports and the bind address are set in .env. Container ports stay fixed.
+      - "${BIND_ADDRESS:-0.0.0.0}:${REST_PORT:-8080}:8080"   # Document REST API
+      - "${BIND_ADDRESS:-0.0.0.0}:${CS_PORT:-8090}:8090"     # SAP Content Server HTTP interface (OAC0)
+      - "127.0.0.1:${ADMIN_PORT:-9090}:9090"                 # metrics/health: localhost only
+    tmpfs:
+      - /tmp:size=64m
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    healthcheck:
+      test: ["CMD", "/zaks-drive-server", "-healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+    mem_limit: 1g
+
+volumes:
+  spool:

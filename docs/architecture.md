@@ -31,6 +31,9 @@ flowchart LR
 
 | Package | Responsibility |
 |---|---|
+| `cmd/zaks-drive`, `internal/ctl` | The management command on the host: setup, start/stop, logs, doctor, update, rollback, support bundle ([cli guide](cli.md), [design](development/cli-design.md)) |
+| `internal/safelog` | The logging policy: what may be logged, redaction of text shown to people |
+| `deploy` | Embedded deployment templates (compose for released installs, Dockerfile.release, config and .env examples) |
 | `cmd/adapter` | Command line (`serve`, `check`, `certs`, `errors`, `version`), listeners, start-up, graceful shutdown. Also the Docker health check |
 | `internal/config` | YAML and environment configuration, defaults, validation that reports every problem at once |
 | `internal/auth` | Inbound authentication (API keys, JWT) and the Entra token source for Graph |

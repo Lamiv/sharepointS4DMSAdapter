@@ -1,5 +1,6 @@
 # Manual release: nothing is published until a maintainer starts this workflow.
-# It creates a DRAFT GitHub release with Linux binaries and checksums for an existing tag.
+# It builds the Linux bundles, installer and checksums for an EXISTING tag, attests their build
+# provenance, and creates a DRAFT (pre-)release. Publishing the draft is a separate manual step.
 # See docs/development/release-process.md.
 name: Release
 
@@ -16,43 +17,56 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.arch }}
+    name: Build, test and attest
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]   # arm64 is cross-compiled and has not been tested on arm64 hardware
+    permissions:
+      contents: read
+      id-token: write       # keyless signing of the attestation
+      attestations: write
     steps:
       - name: Validate the tag (SemVer, with a leading v)
         env:
           TAG: ${{ inputs.tag }}
         run: |
-          echo "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'             || { echo "Tag must look like v0.1.0 or v0.1.0-beta.1 (SemVer)"; exit 1; }
+          echo "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' \
+            || { echo "Tag must look like v0.1.0 or v0.1.0-beta.1 (SemVer)"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Test
-        run: go test -count=1 ./...
-      - name: Build
-        env:
-          TAG: ${{ inputs.tag }}
-          GOOS: linux
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: "0"
+      - name: Tests
         run: |
-          VERSION="${TAG#v}"          # the same string the image tag and OCI label use
-          mkdir dist
-          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "dist/zaks-drive_${VERSION}_linux_${GOARCH}" ./cmd/adapter
-      - name: Binary reports the release version (amd64 only; arm64 is not run)
-        if: matrix.arch == 'amd64'
+          go vet ./...
+          go test -count=1 ./...
+      - name: Installer and release-build tests (no network, no credentials)
+        run: sh scripts/test_install.sh
+      - name: Build the release bundles
         env:
           TAG: ${{ inputs.tag }}
-        run: dist/zaks-drive_${TAG#v}_linux_amd64 version | grep -q "${TAG#v}"
+        run: sh scripts/build-release.sh "${TAG#v}" dist amd64 arm64
+      - name: Reproducibility check (second build must give identical checksums)
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          sh scripts/build-release.sh "${TAG#v}" dist-again amd64 arm64 > /dev/null
+          cmp dist/SHA256SUMS dist-again/SHA256SUMS
+      - name: Release notes
+        env:
+          TAG: ${{ inputs.tag }}
+        run: sh scripts/release-notes.sh "${TAG#v}" > dist/RELEASE_NOTES.md
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/zaks-drive_*_linux_*.tar.gz
+            dist/install.sh
+            dist/SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: zaks-drive-linux-${{ matrix.arch }}
+          name: zaks-drive-release
           path: dist/
 
   draft-release:
@@ -64,13 +78,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          name: zaks-drive-release
           path: dist
-          merge-multiple: true
-      - name: Checksums and draft release
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
-          cd dist && sha256sum zaks-drive_* > SHA256SUMS && cd ..
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --prerelease \
-            --title "ZAKS Drive $TAG" --notes "Draft. See CHANGELOG.md. Binaries are Linux amd64 and arm64 (arm64 untested)."
+          gh release create "$TAG" dist/zaks-drive_*_linux_*.tar.gz dist/install.sh dist/SHA256SUMS dist/RELEASE_NOTES.md \
+            --repo "$GITHUB_REPOSITORY" --draft --prerelease \
+            --title "ZAKS Drive $TAG" --notes-file dist/RELEASE_NOTES.md
