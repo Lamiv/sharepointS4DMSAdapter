@@ -20,4 +20,4 @@ These SAP features all store documents in a content repository through the same 
 2. Configure the scenario in SAP.
 3. Perform one action and look for the request in the ZAKS Drive log (`route="cs:create"`).
 4. Read it back from SAP and compare the content.
-5. Report the result, including SAP release and ZAKS Drive version, so it can be added to the verified list. See [SUPPORT](../../SUPPORT.md) and [CONTRIBUTING](../../CONTRIBUTING.md).
+5. Report the result, including SAP release and ZAKS Drive version, so it can be added to the verified list. See [SUPPORT](../../.github/SUPPORT.md) and [CONTRIBUTING](../../.github/CONTRIBUTING.md).

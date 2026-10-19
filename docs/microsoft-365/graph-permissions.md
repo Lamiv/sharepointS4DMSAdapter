@@ -61,4 +61,4 @@ The `write` role covers all of them. ZAKS Drive's own per-key permissions (`read
 
 ## Not implemented
 
-Certificate-based client authentication to Entra (instead of a client secret) is not implemented; see the [roadmap](../../ROADMAP.md).
+Certificate-based client authentication to Entra (instead of a client secret) is not implemented; see the [roadmap](../roadmap.md).

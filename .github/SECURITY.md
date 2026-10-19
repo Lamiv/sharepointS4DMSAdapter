@@ -31,10 +31,10 @@ Out of scope: vulnerabilities in Microsoft 365, SAP software or Docker itself, a
 | SAP callers | Every request can be signed by SAP (PKCS#7 `secKey`, parameters bound, expiry checked). SAP's certificate is stored inactive until an administrator activates it. `allowedNetworks` restricts source addresses. |
 | Folder isolation | SAP's documents, metadata and certificates live under a reserved folder that the REST API can neither read nor change. |
 | Paging cursors | Signed and bound to repository and folder, so they cannot be forged to reach other libraries. |
-| Logs and errors | `secKey`, secrets, tokens, request credentials and file contents are never logged, and logs never copy text written by Microsoft or a caller (only codes, statuses, titles and IDs; see [logging policy](docs/operations/security.md#logging-policy)). Error responses carry codes, reasons and fixes ([docs/error-codes.md](docs/error-codes.md)). |
+| Logs and errors | `secKey`, secrets, tokens, request credentials and file contents are never logged, and logs never copy text written by Microsoft or a caller (only codes, statuses, titles and IDs; see [logging policy](../docs/operations/security.md#logging-policy)). Error responses carry codes, reasons and fixes ([docs/error-codes.md](../docs/error-codes.md)). |
 | Admin port | Bound to `127.0.0.1` only and protected by `ADMIN_TOKEN`. Do not publish it. |
 | Container | Distroless, non-root, read-only file system. |
-| Management command | `zaks-drive` runs only `docker` (explicit arguments, no shell, only the deployment's own compose file), never deletes volumes or images, never uses `sudo`, verifies downloads against a SHA-256 manifest before using them, sanitizes everything it prints and builds support bundles from allowlisted fields. See [the command guide](docs/cli.md#security-considerations). |
+| Management command | `zaks-drive` runs only `docker` (explicit arguments, no shell, only the deployment's own compose file), never deletes volumes or images, never uses `sudo`, verifies downloads against a SHA-256 manifest before using them, sanitizes everything it prints and builds support bundles from allowlisted fields. See [the command guide](../docs/cli.md#security-considerations). |
 
 ## Hardening checklist for operators
 
