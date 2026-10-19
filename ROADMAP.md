@@ -1,34 +1,47 @@
 # Roadmap
 
-This is a statement of direction, not a commitment. There are no dates. Items move when someone does the work; contributions are welcome ([CONTRIBUTING](CONTRIBUTING.md)).
+A public, community-oriented view of where ZAKS Drive stands and where help is wanted. **Nothing here is a promise, an approval or a schedule.** Items move when someone does the work. Proposals become design discussions through the [RFC process](docs/rfcs/README.md), and decisions are made as described in [GOVERNANCE.md](GOVERNANCE.md).
 
-## Now: reach a trustworthy first pre-release
+Find work by label: [`good first issue`](https://github.com/Lamiv/zaks-drive/labels/good%20first%20issue), [`help wanted`](https://github.com/Lamiv/zaks-drive/labels/help%20wanted), [`sap-integration`](https://github.com/Lamiv/zaks-drive/labels/sap-integration), [`documentation`](https://github.com/Lamiv/zaks-drive/labels/documentation), [`performance`](https://github.com/Lamiv/zaks-drive/labels/performance), [`security`](https://github.com/Lamiv/zaks-drive/labels/security).
 
-- Validate DMS originals end to end on a real SAP system (document type, storage category, KPro) and document the confirmed steps.
-- Run SAP reports RSCMSTAT and RSCMSTHS.
-- Test GOS attachments and ArchiveLink.
-- Repeat the load test against a real test tenant.
-- Publish a `v0.1.0-beta.x` pre-release ([release process](docs/development/release-process.md)).
+## Implemented and verified
 
-## Next
+See the [README feature table](README.md#what-is-verified) for the evidence behind each line.
 
-- Entra authentication with a certificate instead of a client secret.
-- Container image publishing, with SBOM and build provenance.
-- Per-key rate limiting.
-- Tested arm64 builds.
-- A tested high-availability recipe (several instances behind a load balancer).
-- Kubernetes manifests or a Helm chart.
+- REST API: upload, download, folders, versions, search, paging.
+- SharePoint site and OneDrive access through Microsoft Graph, including `Sites.Selected`.
+- SAP Content Server HTTP 4.5 commands and signed URLs: SAP reports RSCMSTH0 to RSCMSTH3, RSCMSTA0 and RSCMSTAC passed on S/4HANA 2025.
+- SAP DMS originals: tested end to end once by the project owner (upload from SAP, storage in SharePoint, retrieval).
+- Error catalogue with causes and fixes, `zaks-drive check`, a safe-logging policy, Prometheus metrics, SemVer versioning from git tags.
 
-## Later, if there is demand
+## Under development
 
-- `attrSearch` (print-list attribute search).
-- A read-only frontend for browsing SAP documents.
-- Other storage back ends behind the storage interface.
+- Documenting the exact SAP customising (document type, storage category, KPro) behind the verified DMS test, so others can reproduce it.
+- A first pre-release (`v0.1.0-beta.1`) once the owner approves ([release process](docs/development/release-process.md)).
+
+## Proposed by the community
+
+None yet. Have an idea? Start a discussion or write an [RFC](docs/rfcs/README.md). Accepted proposals will be listed here with a link; being listed does not mean scheduled.
+
+## Seeking contributors
+
+These are open to anyone; comment on the issue (or open one) before starting a large piece.
+
+| Area | What would help | Good for |
+|---|---|---|
+| SAP testing | GOS attachments and ArchiveLink scenarios; reports RSCMSTAT and RSCMSTHS; other S/4HANA releases and DMS configurations | SAP developers and Basis |
+| Documentation | ABAP and Fiori examples; deployment guides for other environments; troubleshooting knowledge | Everyone |
+| Performance | Load tests against a real test tenant instead of the emulator; tuning guidance | Go and infrastructure engineers |
+| Security | Entra authentication with a certificate instead of a client secret; per-key rate limiting; an independent review of signature verification | Security engineers |
+| Operations | Image publishing with SBOM and build provenance; tested arm64 builds; Kubernetes manifests or a Helm chart; a tested high-availability pattern | Infrastructure engineers |
+| Integrations | Additional storage providers; Content Server `attrSearch` | Go developers (start with an RFC) |
+
+## Deferred
+
+- A document browsing frontend. ZAKS Drive is a content storage gateway, not a DMS application.
+- Other storage back ends behind the storage interface, until an RFC settles the design.
 
 ## Not planned
 
 - CMIS: SharePoint does not support it.
-- Mapping SAP users to SharePoint permissions.
-- Replacing SAP's own authorisation.
-
-Ideas and votes: open a [feature request](https://github.com/Lamiv/zaks-drive/issues/new?template=feature_request.md).
+- Mapping SAP users to SharePoint permissions, or replacing SAP's own authorisation.

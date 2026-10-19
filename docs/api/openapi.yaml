@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: ZAKS Drive – Document REST API
-  version: 1.0.0
+  version: 1.0.0   # version of the REST API contract (/api/v1), not of the ZAKS Drive release
   description: |
     Document API for SAP S/4HANA, Fiori and other enterprise clients, backed by
     SharePoint Online document libraries through Microsoft Graph.

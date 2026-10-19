@@ -22,6 +22,11 @@ jobs:
       matrix:
         arch: [amd64, arm64]   # arm64 is cross-compiled and has not been tested on arm64 hardware
     steps:
+      - name: Validate the tag (SemVer, with a leading v)
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'             || { echo "Tag must look like v0.1.0 or v0.1.0-beta.1 (SemVer)"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
@@ -37,8 +42,14 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
         run: |
+          VERSION="${TAG#v}"          # the same string the image tag and OCI label use
           mkdir dist
-          go build -trimpath -ldflags="-s -w -X main.version=${TAG}" -o "dist/zaks-drive-linux-${GOARCH}" ./cmd/adapter
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "dist/zaks-drive_${VERSION}_linux_${GOARCH}" ./cmd/adapter
+      - name: Binary reports the release version (amd64 only; arm64 is not run)
+        if: matrix.arch == 'amd64'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: dist/zaks-drive_${TAG#v}_linux_amd64 version | grep -q "${TAG#v}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zaks-drive-linux-${{ matrix.arch }}
@@ -60,6 +71,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
-          cd dist && sha256sum zaks-drive-linux-* > SHA256SUMS && cd ..
+          cd dist && sha256sum zaks-drive_* > SHA256SUMS && cd ..
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --prerelease \
             --title "ZAKS Drive $TAG" --notes "Draft. See CHANGELOG.md. Binaries are Linux amd64 and arm64 (arm64 untested)."

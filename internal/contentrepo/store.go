@@ -16,10 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/storage"
 )
 
 // Storage layout in SharePoint, below the repository root:
@@ -588,3 +589,6 @@ func (s *docStore) createEmpty(ctx context.Context, cr *contentRep, docID string
 }
 
 func (s *docStore) invalidate(cr *contentRep, docID string) { s.cache.drop(cacheKey(cr, docID)) }
+
+// The messages of these errors are constants of this program, so they may be logged.
+func init() { safelog.Allow(errDocExists, errCompExists, errBusy, errMetaUnavailable) }

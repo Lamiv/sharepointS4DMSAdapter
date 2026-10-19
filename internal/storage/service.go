@@ -21,10 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 var (
@@ -663,3 +664,5 @@ func (c *itemCache) drop(drive, id string) {
 	delete(c.m, drive+"|"+id)
 	c.mu.Unlock()
 }
+
+func init() { safelog.Allow(ErrNotFound, ErrReadOnly, ErrInvalid, ErrReserved) }

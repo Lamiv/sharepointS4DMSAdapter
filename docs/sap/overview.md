@@ -13,7 +13,7 @@ ZAKS Drive offers SAP two ways to reach SharePoint. They share one Microsoft Gra
 |---|---|---|
 | Content Server commands (serverInfo, info, get, docGet, create, mCreate, update, append, delete, search, putCert) | Yes | SAP reports RSCMSTH0-3, RSCMSTA0, RSCMSTAC passed (2026-10-16); also covered by automated tests with a Graph emulator |
 | Signed URLs (secKey, DSA/RSA/ECDSA) | Yes | Real SAP signatures accepted |
-| DMS originals through KPro | Uses the same commands | Open: CV01N originals did not reach the repository in the one system tested ([DMS integration](dms-integration.md)) |
+| DMS originals through KPro | Uses the same commands | Verified end to end on one system (upload from SAP, storage in SharePoint, retrieval); customising to be documented ([DMS integration](dms-integration.md)) |
 | GOS attachments, ArchiveLink | Uses the same commands | Not tested ([details](kpro-gos-archivelink.md)) |
 | attrSearch, adminContRep, getCert | No (answer 501) | n/a |
 | Transport between repositories (RSCMSTAT), RSCMSTHS | Same commands | Not run |

@@ -20,8 +20,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 type Permission string
@@ -103,8 +104,10 @@ func (a *Authenticator) Authenticate(r *http.Request) (*Principal, error) {
 		// API keys are accepted as bearer tokens when JWT is not configured.
 		return a.byKey(cred, "the bearer token (auth.jwt is not configured, so it was tried as an API key)")
 	}
+	// Do not echo any part of the header: with no space in it, the "scheme" is the whole value,
+	// which can be a credential.
 	return nil, apperr.New(apperr.AuthMissingCredentials,
-		"the Authorization header uses the scheme %q; use `Bearer <token>` or `ApiKey <key>`", scheme).Wrap(ErrUnauthenticated)
+		"the Authorization header does not use a supported scheme; use `Bearer <token>` or `ApiKey <key>`").Wrap(ErrUnauthenticated)
 }
 
 func (a *Authenticator) byKey(key, where string) (*Principal, error) {
@@ -279,5 +282,7 @@ func jwtReason(err error) string {
 	case errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
 		return "the token has no expiry (exp) claim"
 	}
-	return "the token could not be verified: " + err.Error()
+	return "the token could not be verified (" + safelog.Summary(err) + ")"
 }
+
+func init() { safelog.Allow(ErrUnauthenticated) }

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/graphmock"
+	"github.com/Lamiv/zaks-drive/internal/graphmock"
 )
 
 func main() {

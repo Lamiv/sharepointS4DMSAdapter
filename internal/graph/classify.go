@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 // Classify turns an error from the Graph client into a coded error that
@@ -25,7 +26,7 @@ func Classify(err error) *apperr.Error {
 	}
 	var ge *Error
 	if errors.As(err, &ge) {
-		said := fmt.Sprintf("Microsoft Graph answered HTTP %d (%s): %s", ge.Status, ge.Code, shorten(ge.Message, 240))
+		said := fmt.Sprintf("Microsoft Graph answered HTTP %d (%s): %s", ge.Status, ge.Code, shorten(safelog.Redact(ge.Message), 240))
 		code := strings.ToLower(ge.Code)
 		switch {
 		case ge.Status == http.StatusUnauthorized:
@@ -61,7 +62,7 @@ func Classify(err error) *apperr.Error {
 	var ne net.Error
 	var ue *url.Error
 	if errors.As(err, &ne) || errors.As(err, &ue) {
-		return apperr.New(apperr.SPUnreachable, "%v", err)
+		return apperr.New(apperr.SPUnreachable, "could not reach Microsoft Graph (%s)", safelog.Summary(err))
 	}
 	return nil
 }

@@ -16,9 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/storage"
 )
 
 // certRecord is a certificate SAP sent via putCert. It is persisted in
@@ -123,7 +124,7 @@ func (c *certStore) reload(ctx context.Context, maxAge time.Duration) error {
 		for i := range items {
 			rec, err := c.read(ctx, cr, &items[i])
 			if err != nil {
-				c.log.Warn("ignoring unreadable certificate record", "contRep", cr.id, "file", items[i].Name, "error", err)
+				c.log.Warn("ignoring unreadable certificate record", "contRep", cr.id, "file", items[i].Name, safelog.Err(err))
 				continue
 			}
 			recs[certKey(rec.ContRep, rec.AuthID)] = rec

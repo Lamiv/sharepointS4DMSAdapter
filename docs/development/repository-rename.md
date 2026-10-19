@@ -19,7 +19,7 @@ Check for leftovers with `git grep -n 'sharepointS4DMSAdapter'`; only this page 
 
 ## Go module path
 
-The module is `sharepointadapter`, which is not an import path anyone depends on. Leave it. If it is changed later, change `go.mod` and every import in one commit and run the full test suite.
+The module path changed from `sharepointadapter` to `github.com/Lamiv/zaks-drive` (`go.mod` and every import, in one commit; the full test suite passes). The module is not published as a library, so nothing external depends on the old path. The label `sharepointadapter/cursor` in `cmd/adapter/main.go` is HMAC key material for paging cursors and was deliberately kept.
 
 ## Remaining owner steps
 

@@ -17,7 +17,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 type Config struct {
@@ -217,7 +218,7 @@ func Load(path string) (Config, error) {
 		}
 		expanded := os.ExpandEnv(string(raw))
 		if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-			return cfg, apperr.New(apperr.CfgYAMLInvalid, "%q is not valid YAML: %v", path, err).Wrap(err)
+			return cfg, apperr.New(apperr.CfgYAMLInvalid, "%q is not valid YAML: %s", path, safelog.OneLine(safelog.RedactValues(err.Error()))).Wrap(err)
 		}
 	}
 	applyEnv(&cfg)

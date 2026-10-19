@@ -14,8 +14,9 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 // TokenSource returns a bearer token for Microsoft Graph.
@@ -108,7 +109,7 @@ func (c *ClientCredentials) fetch(ctx context.Context) (string, error) {
 	if err != nil {
 		observability.TokenRefreshes.WithLabelValues("error").Inc()
 		// Cause is set: a network problem may be transient, so callers retry.
-		return "", apperr.New(apperr.TokenFailed, "the request to Microsoft Entra ID (%s) failed: %v", c.tokenHost(), err).
+		return "", apperr.New(apperr.TokenFailed, "the request to Microsoft Entra ID (%s) failed (%s)", c.tokenHost(), safelog.Summary(err)).
 			WithFix("Allow outbound HTTPS (443) from this server to login.microsoftonline.com; check DNS, proxy and the system clock.").Wrap(err)
 	}
 	defer resp.Body.Close()
@@ -121,7 +122,7 @@ func (c *ClientCredentials) fetch(ctx context.Context) (string, error) {
 		}
 		_ = json.Unmarshal(body, &e)
 		desc := firstLine(e.Description)
-		return "", apperr.New(apperr.TokenFailed, "Microsoft Entra ID answered HTTP %d: %s %s", resp.StatusCode, e.Error, desc).
+		return "", apperr.New(apperr.TokenFailed, "Microsoft Entra ID answered HTTP %d: %s %s", resp.StatusCode, safelog.Redact(safelog.OneLine(e.Error)), safelog.Redact(desc)).
 			WithFix("%s", entraFix(resp.StatusCode, e.Error, desc))
 	}
 	var t struct {

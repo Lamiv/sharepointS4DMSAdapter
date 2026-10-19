@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
 )
 
 type Identity struct {

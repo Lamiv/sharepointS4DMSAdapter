@@ -32,9 +32,10 @@ cd /opt/zaks-drive
 Without internet access on the server, build elsewhere and transfer the image:
 
 ```bash
-docker build --target adapter -t zaks-drive:latest .
-docker save zaks-drive:latest -o zaks-drive.tar     # on the build machine
-docker load -i zaks-drive.tar                       # on the server; then omit --build below
+VERSION=$(scripts/version.sh)
+docker build --target adapter --build-arg VERSION=$VERSION -t zaks-drive:$VERSION .
+docker save zaks-drive:$VERSION -o zaks-drive.tar     # on the build machine
+docker load -i zaks-drive.tar                       # on the server; then set ZAKS_DRIVE_VERSION=<version> and omit --build below
 ```
 
 ## 3. Configure

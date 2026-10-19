@@ -41,10 +41,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Build the ZAKS Drive image
-        run: docker build --target adapter -t zaks-drive:ci .
-      - name: Binary starts (new and compatibility names)
+      - name: Build the ZAKS Drive image with a version
+        run: docker build --target adapter --build-arg VERSION=0.0.0-ci -t zaks-drive:0.0.0-ci .
+      - name: Binary starts and reports that version (new and compatibility names)
         run: |
-          docker run --rm --entrypoint /zaks-drive zaks-drive:ci version
-          docker run --rm --entrypoint /adapter zaks-drive:ci version
-          docker run --rm --entrypoint /zaks-drive zaks-drive:ci errors > /dev/null
+          docker run --rm --entrypoint /zaks-drive zaks-drive:0.0.0-ci version | tee /dev/stderr | grep -q '0.0.0-ci'
+          docker run --rm --entrypoint /adapter zaks-drive:0.0.0-ci version | grep -q '0.0.0-ci'
+          docker run --rm --entrypoint /zaks-drive zaks-drive:0.0.0-ci errors > /dev/null
+      - name: Image version label matches
+        run: |
+          test "$(docker image inspect zaks-drive:0.0.0-ci --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')" = "0.0.0-ci"

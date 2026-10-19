@@ -1,0 +1,9 @@
+# Code owners are asked to review changes. They only block a merge if the owner turns on
+# "Require review from Code Owners" in the branch protection settings.
+# The project currently has a single maintainer; add reviewers here as people take on areas
+# (see GOVERNANCE.md).
+*                       @Lamiv
+/.github/workflows/     @Lamiv
+/SECURITY.md            @Lamiv
+/internal/contentrepo/  @Lamiv
+/internal/auth/         @Lamiv

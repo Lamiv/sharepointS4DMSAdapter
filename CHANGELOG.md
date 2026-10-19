@@ -10,7 +10,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Error codes with cause and fix on every error, a generated [error catalogue](docs/error-codes.md), and `zaks-drive errors`.
 - SharePoint location (`SHAREPOINT_SITE_URL`, `SHAREPOINT_LIBRARY`, `SHAREPOINT_ROOT_PATH`) read from `.env`; all configuration problems are reported together.
 - OneDrive (`userId`) drive resolution in the Graph emulator and tests.
-- The repository is renamed to `zaks-drive`.
+- Community documentation: `GOVERNANCE.md`, a rewritten `CONTRIBUTING.md`, an RFC process (`docs/rfcs/`), a community roadmap, an SAP test report issue template, CODEOWNERS and a label set.
+- The repository is renamed to `zaks-drive`, and the Go module path is now `github.com/Lamiv/zaks-drive`.
+- One versioning scheme (SemVer from the git tag) for the CLI, image tag, OCI label and release artifacts; `scripts/version.sh`, `ZAKS_DRIVE_VERSION` in Compose, and CI/release checks. See [versioning](docs/development/release-process.md#versioning).
 - Documentation restructure: index, quickstart, installation, configuration reference, architecture, SAP guides, Microsoft 365 guides, operations and development guides; `scripts/check_docs.py` link checker.
 - Governance files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `ROADMAP.md`, issue and pull request templates, CI workflow and Dependabot configuration.
 
@@ -25,4 +27,5 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Security
 
+- Fixed clear-text logging of sensitive data (CodeQL "Clear-text logging of sensitive information"). A caller-supplied `Authorization` value without a space was echoed in the authentication error detail, and from there into the log and the response; Graph and Entra error text and `url.Error` strings (which contain pre-authenticated URLs) could be logged or returned. Logs now carry only approved fields; see the [logging policy](docs/operations/security.md#logging-policy). Regression tests inject synthetic secrets and a policy test guards log calls. A follow-up fixed what CodeQL still reported on the pushed branch: it treats `Header.Get(name)` with a variable header name as a possible credential, so request headers are now read by literal name (enforced by a test). Caller-supplied request IDs and `X-CorrelationID` are still honoured. SAP `pVersion` is now only echoed when it is four digits.
 - Reviewed documentation of controls; see [security](docs/operations/security.md) for what is implemented and what is not.

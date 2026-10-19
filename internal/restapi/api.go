@@ -17,12 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/storage"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 type Options struct {
@@ -222,7 +223,7 @@ func (a *API) download(w http.ResponseWriter, r *http.Request, repo *storage.Rep
 			return
 		}
 		if ctx.Err() == nil {
-			a.log.Warn("download interrupted", "request_id", observability.RequestID(ctx), "item", it.ID, "bytes", res.Bytes, "error", err)
+			a.log.Warn("download interrupted", "request_id", observability.RequestID(ctx), "item", it.ID, "bytes", res.Bytes, safelog.Err(err))
 		}
 	}
 }
@@ -435,13 +436,11 @@ func fileNameFromRequest(r *http.Request) string {
 	if n := r.URL.Query().Get("fileName"); n != "" {
 		return n
 	}
-	for _, h := range []string{"Slug", "X-File-Name"} {
-		if v := r.Header.Get(h); v != "" {
-			if dec, err := url.QueryUnescape(v); err == nil {
-				return dec
-			}
-			return v
+	if v := firstNonEmpty(r.Header.Get("Slug"), r.Header.Get("X-File-Name")); v != "" {
+		if dec, err := url.QueryUnescape(v); err == nil {
+			return dec
 		}
+		return v
 	}
 	if cd := r.Header.Get("Content-Disposition"); cd != "" {
 		if _, p, err := mime.ParseMediaType(cd); err == nil {
@@ -559,9 +558,9 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	rid := observability.RequestID(r.Context())
 	if e.Status() >= 500 {
-		a.log.Error("request failed", "request_id", rid, "code", e.Code, "status", e.Status(), "cause", "internal")
+		a.log.Error("request failed", "request_id", rid, "code", e.Code, "status", e.Status(), "title", e.Title(), safelog.Err(err))
 	} else {
-		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status())
+		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status(), "title", e.Title())
 	}
 	writeProblem(w, r, e)
 }
@@ -618,4 +617,13 @@ func (a *API) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

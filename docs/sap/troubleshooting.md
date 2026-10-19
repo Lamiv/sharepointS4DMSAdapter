@@ -1,6 +1,6 @@
 # SAP troubleshooting
 
-Start on the ZAKS Drive side. Every refused request is logged with its reason:
+Start on the ZAKS Drive side. Every refused request is logged with its error code, status and title (the full explanation is in the `X-ErrorDescription` header SAP receives):
 
 ```bash
 docker compose -f deploy/docker-compose.yml logs --since 15m adapter | grep -E 'request refused|level=ERROR|"level":"ERROR"'

@@ -14,14 +14,16 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
 )
 
 type Options struct {
@@ -90,6 +92,28 @@ type Error struct {
 	Code       string
 	Message    string
 	RetryAfter time.Duration
+	// RequestID is Microsoft's request-id response header (a GUID), for correlation with Microsoft support.
+	RequestID string
+}
+
+var (
+	safeGraphCode = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	guidRe        = regexp.MustCompile(`^[0-9A-Fa-f-]{32,40}$`)
+)
+
+// LogSummary is what may be logged about a Graph error: the status, Graph's error code
+// (only when it has the shape of an identifier) and Microsoft's request ID. Never Message,
+// which is free text written by a third party.
+func (e *Error) LogSummary() string {
+	code := "other"
+	if safeGraphCode.MatchString(e.Code) {
+		code = e.Code
+	}
+	s := fmt.Sprintf("Microsoft Graph HTTP %d %s", e.Status, code)
+	if guidRe.MatchString(e.RequestID) {
+		s += " (graph request-id " + e.RequestID + ")"
+	}
+	return s
 }
 
 func (e *Error) Error() string {
@@ -187,7 +211,7 @@ func (c *Client) do(ctx context.Context, req request) (*http.Response, error) {
 			slog.String("op", req.op), slog.String("reason", reason),
 			slog.Int("attempt", attempt+1), slog.Duration("wait", wait),
 			slog.String("request_id", observability.RequestID(ctx)),
-			slog.String("error", lastErr.Error()))
+			safelog.Err(lastErr))
 		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -293,7 +317,7 @@ func (c *Client) backoff(attempt int) time.Duration {
 
 func readError(resp *http.Response) *Error {
 	defer resp.Body.Close()
-	ge := &Error{Status: resp.StatusCode, Code: http.StatusText(resp.StatusCode)}
+	ge := &Error{Status: resp.StatusCode, Code: http.StatusText(resp.StatusCode), RequestID: resp.Header.Get("request-id")}
 	if ra := resp.Header.Get("Retry-After"); ra != "" {
 		if secs, err := strconv.Atoi(ra); err == nil {
 			ge.RetryAfter = time.Duration(secs) * time.Second

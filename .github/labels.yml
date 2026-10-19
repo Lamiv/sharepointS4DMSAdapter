@@ -1,26 +1,25 @@
 # Label taxonomy for ZAKS Drive. Documentation only: nothing applies it automatically.
-# An owner can import it with a label-sync tool or create the labels by hand.
-# type
-- { name: "type: bug", color: "d73a4a", description: "Something is broken" }
-- { name: "type: feature", color: "a2eeef", description: "New capability" }
-- { name: "type: docs", color: "0075ca", description: "Documentation" }
-- { name: "type: security", color: "b60205", description: "Security-related (use private reporting for vulnerabilities)" }
-- { name: "type: question", color: "d876e3", description: "Usage question" }
+# The repository owner can create these by hand or import them with a label-sync tool.
+# Names match the labels used by the issue templates and linked from the README and ROADMAP.
+# work type
+- { name: "bug", color: "d73a4a", description: "Something is broken" }
+- { name: "enhancement", color: "a2eeef", description: "Improvement or new capability" }
+- { name: "documentation", color: "0075ca", description: "Documentation" }
+- { name: "question", color: "d876e3", description: "Usage question (Discussions are preferred)" }
+- { name: "rfc", color: "5319e7", description: "Design proposal; see docs/rfcs" }
 # area
-- { name: "area: sap-content-server", color: "1d76db", description: "SAP Content Server HTTP interface" }
-- { name: "area: rest-api", color: "1d76db", description: "REST API" }
-- { name: "area: graph", color: "1d76db", description: "Microsoft Graph / SharePoint access" }
-- { name: "area: auth", color: "1d76db", description: "Authentication and authorisation" }
-- { name: "area: deployment", color: "1d76db", description: "Docker, Compose, configuration" }
-- { name: "area: observability", color: "1d76db", description: "Logs, metrics, health" }
-# status
-- { name: "status: needs-info", color: "fbca04", description: "Waiting for details from the reporter" }
-- { name: "status: confirmed", color: "0e8a16", description: "Reproduced or accepted" }
-- { name: "status: blocked", color: "e99695", description: "Blocked by something external" }
-# SAP validation
-- { name: "sap: tested-scenario", color: "5319e7", description: "Report of a tested SAP scenario" }
-- { name: "sap: unverified", color: "c5def5", description: "Behaviour not yet verified on a real SAP system" }
-# community
+- { name: "sap-integration", color: "1d76db", description: "SAP Content Server, DMS, KPro, GOS, ArchiveLink" }
+- { name: "performance", color: "fbca04", description: "Speed, memory, throughput" }
+- { name: "security", color: "b60205", description: "Security hardening (report vulnerabilities privately, not here)" }
+- { name: "graph", color: "1d76db", description: "Microsoft Graph / SharePoint access" }
+- { name: "rest-api", color: "1d76db", description: "REST API" }
+- { name: "deployment", color: "1d76db", description: "Docker, Compose, configuration, operations" }
+# contributors
 - { name: "good first issue", color: "7057ff", description: "Good for newcomers" }
 - { name: "help wanted", color: "008672", description: "Extra attention is welcome" }
+- { name: "sap-test-report", color: "5319e7", description: "Report of a tested SAP scenario" }
+# status
+- { name: "needs-info", color: "fbca04", description: "Waiting for details from the reporter" }
+- { name: "confirmed", color: "0e8a16", description: "Reproduced or accepted" }
+- { name: "blocked", color: "e99695", description: "Blocked by something external" }
 - { name: "dependencies", color: "0366d6", description: "Dependency update" }

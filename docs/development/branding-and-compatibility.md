@@ -17,7 +17,7 @@ Tagline: *Open-Source Enterprise Content Gateway*.
 | Item | Now | Before |
 |---|---|---|
 | Binary | `/zaks-drive` | `/adapter` |
-| Docker image name in Compose | `zaks-drive:latest` | `sharepoint-adapter` |
+| Docker image name in Compose | `zaks-drive:${ZAKS_DRIVE_VERSION:-latest}` | `sharepoint-adapter` |
 | Command-line banner, usage, `version` command, `-version` flag | ZAKS Drive | adapter |
 | Log banner | `ZAKS Drive starting` | adapter starting |
 | OCI image labels | title, description, source, license | none |
@@ -37,7 +37,8 @@ Tagline: *Open-Source Enterprise Content Gateway*.
 | Configuration keys and environment variable names (`GRAPH_*`, `ADAPTER_*`, `SHAREPOINT_*`, ...) | Existing `.env` and `config.yaml` files keep working |
 | Metric names `adapter_*` | Existing dashboards and alerts |
 | SAP `serverVendorId` = `SharePointAdapter` and the repository identifiers | Part of what SAP sees; changing it is a protocol-visible change |
-| Go module path `sharepointadapter` and internal package names | Not an importable library. Renaming would touch every file for no user benefit. A module path change should follow, not precede, a repository rename |
+| Internal package names | Not an importable library; renaming them would touch every file for no user benefit. (The Go module path was changed to `github.com/Lamiv/zaks-drive` with the repository rename.) |
+| The label `sharepointadapter/cursor` inside the paging-cursor key | It is key material, not a module path; changing it would invalidate cursors that clients hold |
 | The audience `api://zaks-drive` in the example JWT configuration | Only an example; set your own |
 
 ## Upgrading from the old name

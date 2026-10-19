@@ -26,16 +26,17 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"sharepointadapter/internal/accesscheck"
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/contentrepo"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/restapi"
-	"sharepointadapter/internal/storage"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/accesscheck"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/contentrepo"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/restapi"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 // version is set at build time (-X main.version=...).
@@ -123,9 +124,9 @@ func main() {
 	log.Info(productName+" starting", "version", version, "interfaces", cfg.Server.Interfaces, "go", runtime.Version())
 	if err := run(cfg, log); err != nil {
 		if ae, ok := apperr.As(err); ok {
-			log.Error(productName+" stopped", "code", ae.Code, "error", ae.Detail, "fix", ae.Fix())
+			log.Error(productName+" stopped", "code", ae.Code, "title", ae.Title(), "detail", safelog.OneLine(safelog.Redact(ae.Detail)), "fix", ae.Fix())
 		} else {
-			log.Error(productName+" stopped", "error", err)
+			log.Error(productName+" stopped", safelog.Err(err))
 		}
 		fmt.Fprintln(os.Stderr, productName+" stopped:\n"+apperr.Format(err))
 		os.Exit(1)
@@ -196,13 +197,13 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 		wait := min(time.Duration(attempt)*2*time.Second, 30*time.Second)
 		hint := initHint(ctx, err, tokens)
-		reason := err.Error()
+		reason := safelog.Redact(safelog.OneLine(safelog.Summary(err)))
 		code := apperr.StartupRepositoryFailed
 		if ae := graph.Classify(err); ae != nil {
 			reason, code = ae.Message(), ae.Code
 		}
 		status.Store("not ready: the configured SharePoint location cannot be used yet. " + reason + hint)
-		log.Error("repository initialisation failed; retrying", "code", code, "error", err, "hint", strings.TrimSpace(hint), "retry_in", wait)
+		log.Error("repository initialisation failed; retrying", "code", code, safelog.Err(err), "hint", strings.TrimSpace(hint), "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -221,6 +222,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	// Paging cursors must verify on every instance sharing these credentials.
+	// The "sharepointadapter/cursor" label predates the rename. It is HMAC key material, not a module
+	// path; changing it would invalidate paging cursors that clients still hold.
 	cursorKey := sha256.Sum256([]byte("sharepointadapter/cursor|" + cfg.Graph.TenantID + "|" + cfg.Graph.ClientID + "|" + cfg.Graph.ClientSecret))
 	svc.SetCursorKey(cursorKey[:])
 
@@ -301,13 +304,13 @@ func readinessLoop(ctx context.Context, svc *storage.Service, ready *atomic.Bool
 		defer cancel()
 		err := svc.Ping(cctx)
 		if err != nil {
-			status.Store("not ready: SharePoint check failed: " + err.Error())
+			status.Store("not ready: SharePoint check failed: " + safelog.Redact(safelog.OneLine(readinessReason(err))))
 		} else {
 			status.Store("ready")
 		}
 		if was := ready.Swap(err == nil); was != (err == nil) {
 			if err != nil {
-				log.Error("readiness check failed", "error", err)
+				log.Error("readiness check failed", safelog.Err(err))
 			} else {
 				log.Info("ready")
 			}
@@ -463,4 +466,13 @@ func runCheck(cfg config.Config) int {
 		MaxRetries: cfg.Graph.MaxRetries, MaxRetryBackoff: cfg.Graph.MaxRetryBackoff,
 	}, tokens, transport, log)
 	return accesscheck.Run(ctx, cfg, gc, tokens, os.Stdout)
+}
+
+// readinessReason explains a failed readiness check to the operator who calls /readyz:
+// the application error's message when there is one, otherwise a structural summary.
+func readinessReason(err error) string {
+	if ae := graph.Classify(err); ae != nil {
+		return ae.Message()
+	}
+	return safelog.Summary(err)
 }

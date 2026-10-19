@@ -26,12 +26,12 @@ import (
 	"testing"
 	"time"
 
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/graphmock"
-	"sharepointadapter/internal/storage"
-	"sharepointadapter/internal/transfer"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/graphmock"
+	"github.com/Lamiv/zaks-drive/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/transfer"
 )
 
 // ---- test signer: emulates SAP SSF producing a detached PKCS#7 secKey ----
@@ -696,7 +696,7 @@ func TestRefusedRequestsAreLoggedWithReason(t *testing.T) {
 	resp, body := e.do("GET", e.u("get", false, "", "contRep", "Z2", "docId", "NOPE"), nil, nil)
 	e.expect(resp, body, 404)
 	out := buf.String()
-	for _, want := range []string{"content server request refused", "command=get", "status=404", "contRep=Z2", "docId=NOPE", "reason="} {
+	for _, want := range []string{"content server request refused", "command=get", "status=404", "contRep=Z2", "docId=NOPE", "code=CS_DOC_NOT_FOUND", "title="} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}

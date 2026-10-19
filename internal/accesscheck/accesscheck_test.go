@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"sharepointadapter/internal/auth"
-	"sharepointadapter/internal/config"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/graphmock"
+	"github.com/Lamiv/zaks-drive/internal/auth"
+	"github.com/Lamiv/zaks-drive/internal/config"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/graphmock"
 )
 
 func newEnv(t *testing.T) (*graph.Client, auth.TokenSource, string) {

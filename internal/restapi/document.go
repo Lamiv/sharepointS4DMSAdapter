@@ -4,8 +4,8 @@ import (
 	"net/url"
 	"time"
 
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/storage"
 )
 
 // Document is the REST representation of a SharePoint drive item.

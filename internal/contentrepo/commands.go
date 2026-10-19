@@ -12,15 +12,15 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"sharepointadapter/internal/apperr"
-	"sharepointadapter/internal/graph"
-	"sharepointadapter/internal/observability"
-	"sharepointadapter/internal/storage"
+	"github.com/Lamiv/zaks-drive/internal/apperr"
+	"github.com/Lamiv/zaks-drive/internal/graph"
+	"github.com/Lamiv/zaks-drive/internal/observability"
+	"github.com/Lamiv/zaks-drive/internal/safelog"
+	"github.com/Lamiv/zaks-drive/internal/storage"
 )
 
 // Behaviour follows "SAP Content Server HTTP 4.5 Interface" (ABAP Platform
@@ -266,7 +266,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, p params, cr *conte
 	defer resp.Body.Close()
 	w.WriteHeader(http.StatusOK)
 	if _, err := s.svc.Engine().Copy(r.Context(), w, resp.Body); err != nil && r.Context().Err() == nil {
-		s.log.Warn("get interrupted", "contRep", cr.id, "docId", d.id, "compId", c.id, "error", err)
+		s.log.Warn("get interrupted", "contRep", cr.id, "docId", d.id, "compId", c.id, safelog.Err(err))
 	}
 	return nil
 }
@@ -318,7 +318,7 @@ func (s *Server) docGet(w http.ResponseWriter, r *http.Request, p params, cr *co
 		if c.item.Size > 0 {
 			resp, err := s.svc.Open(r.Context(), cr.repo, &c.item, "")
 			if err != nil {
-				s.log.Error("docGet: component unavailable", "docId", d.id, "compId", c.id, "error", err)
+				s.log.Error("docGet: component unavailable", "docId", d.id, "compId", c.id, safelog.Err(err))
 				return nil // headers already sent; abort the stream
 			}
 			body = resp.Body
@@ -430,7 +430,7 @@ func (s *Server) removeAfterFailedCreate(r *http.Request, cr *contentRep, docID 
 		return
 	}
 	if err := s.svc.Delete(context.WithoutCancel(r.Context()), cr.repo, item.ID, ""); err != nil {
-		s.log.Error("create rollback failed; component left without metadata", "contRep", cr.id, "docId", docID, "item", item.ID, "error", err)
+		s.log.Error("create rollback failed; component left without metadata", "contRep", cr.id, "docId", docID, "item", item.ID, safelog.Err(err))
 	}
 	s.docs.invalidate(cr, docID)
 }
@@ -547,7 +547,7 @@ func (pr *partReader) next() (partInfo, error) {
 		idx := pr.idx
 		pr.idx++
 		if pi.compID != "" {
-			pr.s.log.Debug("multipart part", "command", pr.cmd, "index", idx, "headers", headerSummary(part.Header))
+			pr.s.log.Debug("multipart part", "command", pr.cmd, "index", idx, "headers", safelog.HeaderValues(part.Header, "Content-Type", "Content-Length", "Content-Disposition", "X-compId", "X-docId", "X-Content-Length", "X-contRep", "X-pVersion"))
 			return pi, nil
 		}
 		// No component ID. A part without headers and body is the marker for
@@ -564,27 +564,10 @@ func (pr *partReader) next() (partInfo, error) {
 			pi.compID = "data" + strconv.Itoa(idx)
 		}
 		pr.s.log.Warn("multipart part without X-compId; using default component name",
-			"command", pr.cmd, "index", idx, "compId", pi.compID, "headers", headerSummary(part.Header),
+			"command", pr.cmd, "index", idx, "compId", pi.compID, "headers", safelog.HeaderValues(part.Header, "Content-Type", "Content-Length", "Content-Disposition", "X-compId", "X-docId", "X-Content-Length", "X-contRep", "X-pVersion"),
 			"request_id", observability.RequestID(pr.r.Context()))
 		return pi, nil
 	}
-}
-
-// headerSummary renders part headers for logs (names and short values).
-func headerSummary(h textproto.MIMEHeader) string {
-	if len(h) == 0 {
-		return "(none)"
-	}
-	var parts []string
-	for k, v := range h {
-		val := strings.Join(v, ",")
-		if len(val) > 80 {
-			val = val[:80] + "..."
-		}
-		parts = append(parts, k+": "+val)
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, " | ")
 }
 
 func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr *contentRep) error {
@@ -605,7 +588,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request, p params, cr
 		// "If an error occurs when storing a component, the entire action is canceled."
 		if len(meta.Components) > 0 {
 			if derr := s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, docID); derr != nil {
-				s.log.Error("create rollback failed", "contRep", cr.id, "docId", docID, "error", derr)
+				s.log.Error("create rollback failed", "contRep", cr.id, "docId", docID, safelog.Err(derr))
 			}
 		}
 		s.docs.invalidate(cr, docID)
@@ -679,7 +662,7 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 		if err := s.docs.saveMeta(r.Context(), cr, cur.docID, nil, func(m *docMeta, isNew bool) {
 			*m = *meta.clone()
 		}); err != nil {
-			cur.code, cur.desc = http.StatusInternalServerError, err.Error()
+			cur.code, cur.desc = http.StatusInternalServerError, safelog.Summary(err)
 			_ = s.docs.deleteDocument(context.WithoutCancel(r.Context()), cr, cur.docID)
 		} else {
 			cur.code = http.StatusCreated
@@ -706,14 +689,14 @@ func (s *Server) mCreate(w http.ResponseWriter, r *http.Request, p params, cr *c
 			if _, err := s.docs.load(r.Context(), cr, pi.docID); err == nil {
 				cur.code, cur.desc = http.StatusForbidden, "document already exists"
 			} else if !errors.Is(err, storage.ErrNotFound) {
-				cur.code, cur.desc = http.StatusInternalServerError, err.Error()
+				cur.code, cur.desc = http.StatusInternalServerError, safelog.Summary(err)
 			}
 		}
 		if cur.code != 0 {
 			continue // skip remaining parts of a failed/existing document
 		}
 		if _, err := s.docs.putComponent(r.Context(), cr, pi.docID, pi.compID, pi.body, pi.size, true); err != nil {
-			cur.code, cur.desc = http.StatusInternalServerError, err.Error()
+			cur.code, cur.desc = http.StatusInternalServerError, safelog.Summary(err)
 			if errors.Is(err, errCompExists) {
 				cur.code = http.StatusForbidden
 			}
@@ -942,7 +925,7 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request, p params, cr 
 			delete(m.Components, id)
 			m.Modified = now
 		}); err != nil {
-			s.log.Warn("component deleted but metadata not updated", "contRep", cr.id, "docId", d.id, "compId", id, "error", err)
+			s.log.Warn("component deleted but metadata not updated", "contRep", cr.id, "docId", d.id, "compId", id, safelog.Err(err))
 		}
 	} else if err := s.docs.deleteDocument(r.Context(), cr, d.id); err != nil {
 		return err
