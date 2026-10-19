@@ -1,11 +1,11 @@
 # Contributing
 
-Thank you for helping. This project connects SAP S/4HANA and your own applications to SharePoint Online, so correctness and clear errors matter more than clever code. Bug reports, documentation fixes and test results from real SAP systems are all welcome.
+Thank you for helping. This project (ZAKS Drive) connects SAP S/4HANA and your own applications to SharePoint Online, so correctness and clear errors matter more than clever code. Bug reports, documentation fixes and test results from real SAP systems are all welcome.
 
 ## Before you start
 
 - **Questions and ideas:** open an issue and describe what you want to do and why. For anything larger than a fix, agree on the approach first so nobody builds something that cannot be merged.
-- **Bugs:** include the output of `docker compose -f deploy/docker-compose.yml exec adapter /adapter check`, the **error code** and **request ID** from the response or log, and the adapter version (`git log -1 --oneline`). **Never paste secrets** (client secret, API keys, admin token, `.env`, signed URLs).
+- **Bugs:** include the output of `docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive check`, the **error code** and **request ID** from the response or log, and the ZAKS Drive version (`zaks-drive version`). **Never paste secrets** (client secret, API keys, admin token, `.env`, signed URLs).
 - **Security problems:** do not open a public issue; follow [SECURITY.md](SECURITY.md).
 
 ## Set up (no Go installation needed)
@@ -25,7 +25,7 @@ docker run --rm -v "$PWD:/src" -w /src golang:1.25 sh -c 'test -z "$(gofmt -l .)
 
 With Go 1.25 installed locally, `go test -race ./...` does the same. On Windows with Git Bash, prefix Docker commands that mount paths with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` instead of `$PWD`.
 
-To try the adapter without a Microsoft tenant, use the emulator stack from the [Quick start](README.md#quick-start).
+To try ZAKS Drive without a Microsoft tenant, use the emulator stack from the [quickstart](docs/quickstart.md).
 
 ## Project layout
 
@@ -39,7 +39,7 @@ To try the adapter without a Microsoft tenant, use the emulator stack from the [
 | `internal/restapi` | Document REST API |
 | `internal/contentrepo` | SAP Content Server HTTP interface, `secKey` verification, certificates |
 | `internal/apperr` | **The error-code catalogue** (see below) |
-| `internal/accesscheck` | `adapter check` |
+| `internal/accesscheck` | `zaks-drive check` |
 | `docs/`, `loadtest/`, `scripts/` | Documentation, k6 load tests, smoke test scripts |
 
 ## Rules for changes
@@ -60,7 +60,7 @@ To try the adapter without a Microsoft tenant, use the emulator stack from the [
 Before a larger change is merged it should have been exercised against real SharePoint, using a test site:
 
 ```bash
-docker compose -f deploy/docker-compose.yml exec adapter /adapter check      # access checklist
+docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive check      # access checklist
 API_KEY=<key> bash scripts/e2e-smoke.sh                                        # end-to-end checks
 ```
 

@@ -4,11 +4,11 @@
 
 **Please do not open a public issue for a security problem.**
 
-Use GitHub's private reporting: on the repository page choose **Security → Report a vulnerability**. Include:
+Use GitHub's private vulnerability reporting: on the repository page choose **Security → Report a vulnerability**. (The repository owner must have this feature enabled in the repository settings; no other contact address is published.) There is no fixed response time; this is a best-effort open-source project. Include:
 
 - what you found and the impact you expect,
 - the steps to reproduce it, or a proof of concept,
-- the version (`git log -1 --oneline`) and how the adapter is deployed.
+- the version (`zaks-drive version`) and how ZAKS Drive is deployed.
 
 You will get an acknowledgement and an assessment as soon as the maintainer can. This is a volunteer-maintained project, so there is no guaranteed response time, but security reports are handled first. Please give a reasonable period to fix a problem before you disclose it publicly. You will be credited in the fix unless you prefer otherwise.
 
@@ -18,11 +18,11 @@ Only the latest commit on `main` receives fixes. There are no long-term-support 
 
 ## What is in scope
 
-The adapter's own code and configuration defaults: authentication and authorisation (API keys, JWT, admin token), the SAP `secKey` signature check, certificate handling, path and folder restrictions, request parsing, logging of sensitive data, and the Docker image.
+ZAKS Drive's own code and configuration defaults: authentication and authorisation (API keys, JWT, admin token), the SAP `secKey` signature check, certificate handling, path and folder restrictions, request parsing, logging of sensitive data, and the Docker image.
 
-Out of scope: vulnerabilities in Microsoft 365, SAP software or Docker itself, and attacks that need the attacker to already control the adapter's server or its `deploy/.env` file.
+Out of scope: vulnerabilities in Microsoft 365, SAP software or Docker itself, and attacks that need the attacker to already control the ZAKS Drive server or its `deploy/.env` file.
 
-## How the adapter protects your data
+## How ZAKS Drive protects your data
 
 | Area | Behaviour |
 |---|---|
@@ -43,6 +43,6 @@ Out of scope: vulnerabilities in Microsoft 365, SAP software or Docker itself, a
 - [ ] Serve HTTPS (reverse proxy or `server.tlsCertFile`) and import the chain into SAP STRUST.
 - [ ] Set `contentServer.allowedNetworks` to your SAP servers; keep `signature: required` in production.
 - [ ] Give people read access at most to the SAP content folder in SharePoint, and never edit its files by hand.
-- [ ] Never put a privileged API key into browser code; call the adapter from your backend or use JWT.
+- [ ] Never put a privileged API key into browser code; call ZAKS Drive from your backend or use JWT.
 - [ ] Keep `LOG_LEVEL=info` in production (debug shows request metadata).
 - [ ] Update regularly (`git pull` and rebuild) and watch the repository's security advisories.

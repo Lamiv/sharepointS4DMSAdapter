@@ -1,0 +1,65 @@
+# Manual release: nothing is published until a maintainer starts this workflow.
+# It creates a DRAFT GitHub release with Linux binaries and checksums for an existing tag.
+# See docs/development/release-process.md.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v0.1.0-beta.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]   # arm64 is cross-compiled and has not been tested on arm64 hardware
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build
+        env:
+          TAG: ${{ inputs.tag }}
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir dist
+          go build -trimpath -ldflags="-s -w -X main.version=${TAG}" -o "dist/zaks-drive-linux-${GOARCH}" ./cmd/adapter
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zaks-drive-linux-${{ matrix.arch }}
+          path: dist/
+
+  draft-release:
+    name: Draft GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          cd dist && sha256sum zaks-drive-linux-* > SHA256SUMS && cd ..
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --prerelease \
+            --title "ZAKS Drive $TAG" --notes "Draft. See CHANGELOG.md. Binaries are Linux amd64 and arm64 (arm64 untested)."

@@ -22,7 +22,7 @@ requestId:
 **Output of the access check**
 
 ```
-docker compose -f deploy/docker-compose.yml exec adapter /adapter check
+docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive check
 ```
 
 **Relevant log lines** (`docker compose -f deploy/docker-compose.yml logs --since 30m adapter | grep 'request refused'`)
