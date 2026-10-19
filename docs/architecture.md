@@ -44,7 +44,7 @@ flowchart LR
 | `internal/accesscheck` | The `check` command |
 | `internal/graphmock`, `cmd/graphmock` | A Graph emulator for tests, load tests and the [quickstart](quickstart.md) |
 
-The Go module is named `sharepointadapter`; the packages keep their names ([branding and compatibility](development/branding-and-compatibility.md)).
+The Go module is `github.com/Lamiv/zaks-drive`; the internal packages keep their names ([branding and compatibility](development/branding-and-compatibility.md)).
 
 ## Request flow
 

@@ -10,7 +10,11 @@ services:
     build:
       context: ..
       target: adapter
-    image: zaks-drive:latest
+      args:
+        VERSION: ${ZAKS_DRIVE_VERSION:-dev}
+    # Set ZAKS_DRIVE_VERSION (see scripts/version.sh) to build and run a versioned image.
+    # "latest" is only the default tag of your own local build; it is not a stability guarantee.
+    image: zaks-drive:${ZAKS_DRIVE_VERSION:-latest}
     restart: unless-stopped
     env_file: .env
     environment:

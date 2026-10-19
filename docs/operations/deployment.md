@@ -4,7 +4,7 @@ The supported deployment is one container run with Docker Compose ([installation
 
 ## What the Compose file does
 
-[`deploy/docker-compose.yml`](../../deploy/docker-compose.yml) runs the image `zaks-drive:latest` as the service `adapter` with:
+[`deploy/docker-compose.yml`](../../deploy/docker-compose.yml) runs the image `zaks-drive:${ZAKS_DRIVE_VERSION}` (default tag `latest`: your own local build, not a stability guarantee; see [versioning](../development/release-process.md#versioning)) as the service `adapter` with:
 
 | Setting | Value |
 |---|---|
@@ -33,7 +33,8 @@ Terminate TLS in a reverse proxy, or set `server.tlsCertFile` and `server.tlsKey
 
 ```bash
 cd /opt/zaks-drive
-git pull
+git fetch --tags && git checkout v<version>      # pin a release; avoid tracking a moving branch in production
+export ZAKS_DRIVE_VERSION=$(scripts/version.sh)
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive version
 docker compose -f deploy/docker-compose.yml exec adapter /zaks-drive check
