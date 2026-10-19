@@ -1,6 +1,6 @@
 # ZAKS Drive
 
-**Open-Source Enterprise Content Gateway.** Store SAP S/4HANA and application documents in Microsoft SharePoint Online or OneDrive for Business, through the SAP Content Server HTTP interface and a REST API.
+**Open-Source Enterprise Content Gateway.** An open-source bridge that saves files from SAP S/4HANA and your applications to Microsoft SharePoint Online or OneDrive for Business, through the SAP Content Server HTTP interface and a REST API.
 
 [![CI](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml/badge.svg)](https://github.com/Lamiv/sharepointS4DMSAdapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
