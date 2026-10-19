@@ -222,7 +222,7 @@ func TestStartTimesOutWhenNotReadyAndShowsTheReason(t *testing.T) {
 
 func TestStartFailsFastWhenTheContainerExits(t *testing.T) {
 	e := newEnv(t)
-	e.run.handler = healthyDocker("exited")
+	e.useFake(func(f *dockerFake) { f.state = "exited" })
 	e.readyStatus = 503
 	if rc := e.main("start", "--dir", e.dir, "--timeout", "10s"); rc != ExitUnhealthy {
 		t.Fatalf("exit %d", rc)
@@ -434,7 +434,7 @@ func TestEnvPortsAndBind(t *testing.T) {
 	e := newEnv(t)
 	d := newDeployment(e.dir)
 	p := d.ports()
-	if p.Bind != "0.0.0.0" || p.REST != 8080 || p.CS != 8090 {
+	if p.Bind != "0.0.0.0" || p.REST != 8080 || p.CS != e.fake.csPort || p.Admin != e.adminPort {
 		t.Errorf("%+v", p)
 	}
 	m := map[string]string{"X": "99999", "Y": "abc", "Z": "70"}

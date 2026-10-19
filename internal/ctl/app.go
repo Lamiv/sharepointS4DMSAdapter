@@ -14,7 +14,9 @@ package ctl
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,6 +58,10 @@ type App struct {
 	ExePath func() (string, error)
 	// PollInterval is how often readiness is polled (default one second; tests shorten it).
 	PollInterval time.Duration
+	// DiskFree overrides the free-space lookup (tests).
+	DiskFree func(path string) (int64, error)
+	// PortBusy overrides the host port probe (tests); the default tries to listen on the port.
+	PortBusy func(host string, port int) bool
 
 	inReader *bufio.Reader
 }
@@ -181,4 +187,17 @@ func trimLines(s string, max int) string {
 		lines = lines[len(lines)-max:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// marshalJSON indents like json.MarshalIndent but does not escape <, > and & (the output is
+// read by people and scripts, never embedded in HTML).
+func marshalJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }

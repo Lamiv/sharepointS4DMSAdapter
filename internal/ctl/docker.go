@@ -13,8 +13,9 @@ import (
 // PrereqError says what is missing and how to fix it. ZAKS Drive never installs Docker or
 // changes system permissions itself.
 type PrereqError struct {
-	Msg string
-	Fix string
+	Kind string // missing, permission, daemon, compose, other
+	Msg  string
+	Fix  string
 }
 
 func (e *PrereqError) Error() string { return e.Msg }
@@ -32,33 +33,36 @@ func (a *App) checkDocker(ctx context.Context) (Prereq, error) {
 	res, err := a.Runner.Run(ctx, "docker", []string{"version", "--format", "{{.Server.Version}}"}, RunOpts{})
 	if errors.Is(err, ErrNotInstalled) {
 		return p, &PrereqError{
-			Msg: "Docker is not installed (the docker command was not found on PATH)",
-			Fix: "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/ . zaks-drive does not install Docker for you.",
+			Kind: "missing",
+			Msg:  "Docker is not installed (the docker command was not found on PATH)",
+			Fix:  "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/ . zaks-drive does not install Docker for you.",
 		}
 	}
 	if err != nil {
-		return p, &PrereqError{Msg: "could not run docker: " + oneLine(err.Error()), Fix: "Check that the docker command works for your user: docker version"}
+		return p, &PrereqError{Kind: "other", Msg: "could not run docker: " + oneLine(err.Error()), Fix: "Check that the docker command works for your user: docker version"}
 	}
 	if res.ExitCode != 0 {
 		msg := strings.ToLower(res.Stderr)
 		switch {
 		case strings.Contains(msg, "permission denied"):
 			return p, &PrereqError{
-				Msg: "your user may not use the Docker daemon (permission denied on the Docker socket)",
-				Fix: "Run zaks-drive as a user in the \"docker\" group (sudo usermod -aG docker $USER, then log in again), or use sudo. zaks-drive never changes group membership for you.",
+				Kind: "permission",
+				Msg:  "your user may not use the Docker daemon (permission denied on the Docker socket)",
+				Fix:  "Run zaks-drive as a user in the \"docker\" group (sudo usermod -aG docker $USER, then log in again), or use sudo. zaks-drive never changes group membership for you.",
 			}
 		case strings.Contains(msg, "cannot connect") || strings.Contains(msg, "is the docker daemon running"):
-			return p, &PrereqError{Msg: "the Docker daemon is not running or not reachable", Fix: "Start it: sudo systemctl start docker"}
+			return p, &PrereqError{Kind: "daemon", Msg: "the Docker daemon is not running or not reachable", Fix: "Start it: sudo systemctl start docker"}
 		}
-		return p, &PrereqError{Msg: "docker version failed: " + oneLine(trimLines(res.Stderr, 2)), Fix: "Run docker version and fix what it reports."}
+		return p, &PrereqError{Kind: "other", Msg: "docker version failed: " + oneLine(trimLines(res.Stderr, 2)), Fix: "Run docker version and fix what it reports."}
 	}
 	p.DockerServer = strings.TrimSpace(res.Stdout)
 
 	res, err = a.Runner.Run(ctx, "docker", []string{"compose", "version", "--short"}, RunOpts{})
 	if err != nil || res.ExitCode != 0 {
 		return p, &PrereqError{
-			Msg: "Docker Compose v2 is not available (docker compose version failed)",
-			Fix: "Install the Compose plugin (docker-compose-plugin package, see https://docs.docker.com/compose/install/linux/). The old docker-compose v1 command is not supported.",
+			Kind: "compose",
+			Msg:  "Docker Compose v2 is not available (docker compose version failed)",
+			Fix:  "Install the Compose plugin (docker-compose-plugin package, see https://docs.docker.com/compose/install/linux/). The old docker-compose v1 command is not supported.",
 		}
 	}
 	p.Compose = strings.TrimSpace(res.Stdout)

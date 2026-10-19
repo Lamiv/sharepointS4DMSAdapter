@@ -3,6 +3,7 @@ package ctl
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -83,20 +84,21 @@ func (f *fakeRunner) has(substr string) bool {
 	return false
 }
 
-type env struct {
-	app *App
-	out *bytes.Buffer
-	err *bytes.Buffer
-	run *fakeRunner
-	dir string
-	// admin is the fake admin endpoint (health/readiness) of the deployment.
-	admin       *httptest.Server
-	readyStatus int
-	readyBody   string
+// dockerFake answers the way a working Docker with one container does. The knobs let a test
+// drive each diagnostic into each of its states.
+type dockerFake struct {
+	state       string // container state
+	health      string
+	restarts    int
+	oom         bool
+	memory      int64
+	adminPort   int
+	restPort    int
+	csPort      int
+	noContainer bool
 }
 
-// healthyDocker answers the way a working Docker with one running container does.
-func healthyDocker(containerState string) func(c call) (Result, error) {
+func (f dockerFake) handler() func(c call) (Result, error) {
 	return func(c call) (Result, error) {
 		line := c.String()
 		switch {
@@ -105,9 +107,18 @@ func healthyDocker(containerState string) func(c call) (Result, error) {
 		case strings.HasPrefix(line, "docker compose version"):
 			return Result{Stdout: "2.29.0\n"}, nil
 		case strings.Contains(line, " ps --all --format json"):
-			return Result{Stdout: `{"ID":"abc123def456","Name":"zd-adapter-1","Service":"adapter","State":"` + containerState + `","Health":"healthy","ExitCode":0,"Image":"zaks-drive:0.1.0","Publishers":[{"URL":"127.0.0.1","TargetPort":9090,"PublishedPort":9090,"Protocol":"tcp"},{"URL":"0.0.0.0","TargetPort":8080,"PublishedPort":8080,"Protocol":"tcp"}]}` + "\n"}, nil
+			if f.noContainer {
+				return Result{}, nil
+			}
+			pub := func(host string, port int) string {
+				return fmt.Sprintf(`{"URL":"%s","TargetPort":%d,"PublishedPort":%d,"Protocol":"tcp"}`, host, port, port)
+			}
+			return Result{Stdout: `{"ID":"abc123def456","Name":"zd-adapter-1","Service":"adapter","State":"` + f.state + `","Health":"` + f.health +
+				`","ExitCode":0,"Image":"zaks-drive:0.1.0","Publishers":[` + pub("127.0.0.1", f.adminPort) + `,` + pub("0.0.0.0", f.restPort) + `,` + pub("0.0.0.0", f.csPort) + `]}` + "\n"}, nil
+		case strings.HasPrefix(line, "docker inspect") && strings.Contains(line, "OOMKilled"):
+			return Result{Stdout: fmt.Sprintf("%v %d\n", f.oom, f.memory)}, nil
 		case strings.HasPrefix(line, "docker inspect"):
-			return Result{Stdout: "abc123def456000000000000000000000000000000000000000000000000abcd 0\n"}, nil
+			return Result{Stdout: fmt.Sprintf("abc123def456000000000000000000000000000000000000000000000000abcd %d\n", f.restarts)}, nil
 		case strings.Contains(line, "config --images"):
 			return Result{Stdout: "zaks-drive:0.1.0\n"}, nil
 		case strings.HasPrefix(line, "docker image inspect"):
@@ -117,11 +128,39 @@ func healthyDocker(containerState string) func(c call) (Result, error) {
 	}
 }
 
-// newEnv creates a test App, a valid release-mode deployment in a temp dir and a fake admin
-// endpoint whose port is written into the deployment's .env.
+// healthyDocker is a running, healthy container with the default ports.
+func healthyDocker(containerState string) func(c call) (Result, error) {
+	return dockerFake{state: containerState, health: "healthy", memory: 1 << 30, adminPort: 9090, restPort: 8080, csPort: 8090}.handler()
+}
+
+type env struct {
+	app *App
+	out *bytes.Buffer
+	err *bytes.Buffer
+	run *fakeRunner
+	dir string
+	// admin is the fake admin endpoint (health, readiness, version, certificate list).
+	admin       *httptest.Server
+	readyStatus int
+	readyBody   string
+	adminPort   int
+	// cs is the fake SAP Content Server port; csStatus, csBody and csHeader are what serverInfo answers.
+	cs       *httptest.Server
+	csStatus int
+	csBody   string
+	csHeader map[string]string
+	// certs is the JSON of the fake certificate admin endpoint; certStatus its HTTP status.
+	certs      string
+	certStatus int
+	fake       dockerFake
+}
+
+// newEnv creates a test App, a valid release-mode deployment in a temp dir, a fake admin endpoint
+// and a fake Content Server port whose ports are written into the deployment's .env.
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{out: &bytes.Buffer{}, err: &bytes.Buffer{}, run: &fakeRunner{handler: healthyDocker("running")}, dir: t.TempDir(), readyStatus: 200, readyBody: "ready"}
+	e := &env{out: &bytes.Buffer{}, err: &bytes.Buffer{}, run: &fakeRunner{}, dir: t.TempDir(), readyStatus: 200, readyBody: "ready",
+		csStatus: 200, csBody: "serverStatus=\"running\";pVersion=\"0047\";\ncontRep=\"Z1\";contRepStatus=\"running\";\n", certStatus: 200, certs: `{"value":[]}`}
 	e.admin = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/readyz":
@@ -129,16 +168,40 @@ func newEnv(t *testing.T) *env {
 			_, _ = w.Write([]byte(e.readyBody))
 		case "/version":
 			_, _ = w.Write([]byte("0.1.0"))
+		case "/healthz":
+			_, _ = w.Write([]byte("ok"))
+		case "/admin/contentserver/certificates":
+			if r.Header.Get("Authorization") != "Bearer "+secAdmin {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(e.certStatus)
+			_, _ = w.Write([]byte(e.certs))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(e.admin.Close)
 	u, _ := url.Parse(e.admin.URL)
-	port, _ := strconv.Atoi(u.Port())
+	e.adminPort, _ = strconv.Atoi(u.Port())
+
+	e.cs = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range e.csHeader {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(e.csStatus)
+		_, _ = w.Write([]byte(e.csBody))
+	}))
+	t.Cleanup(e.cs.Close)
+	cu, _ := url.Parse(e.cs.URL)
+	csPort, _ := strconv.Atoi(cu.Port())
+
+	e.fake = dockerFake{state: "running", health: "healthy", memory: 1 << 30, adminPort: e.adminPort, restPort: 8080, csPort: csPort}
+	e.run.handler = e.fake.handler()
 
 	ans := validAnswers(e.dir)
-	ans.AdminPort = port
+	ans.AdminPort = e.adminPort
+	ans.CSPort = csPort
 	envText, err := renderEnv(ans)
 	if err != nil {
 		t.Fatal(err)
@@ -160,8 +223,17 @@ func newEnv(t *testing.T) *env {
 		Interactive:  func() bool { return false },
 		ExePath:      func() (string, error) { return filepath.Join(t.TempDir(), "bin", "zaks-drive"), nil },
 		PollInterval: 5 * time.Millisecond,
+		DiskFree:     func(string) (int64, error) { return 50 << 30, nil },
+		PortBusy:     func(string, int) bool { return false },
 	}
 	return e
+}
+
+// useFake replaces the Docker behaviour with a modified dockerFake.
+func (e *env) useFake(mod func(f *dockerFake)) {
+	f := e.fake
+	mod(&f)
+	e.run.handler = f.handler()
 }
 
 func validAnswers(dir string) Answers {
@@ -189,3 +261,5 @@ func (e *env) main(args ...string) int {
 }
 
 func (e *env) both() string { return e.out.String() + e.err.String() }
+
+func nil2() context.Context { return context.Background() }

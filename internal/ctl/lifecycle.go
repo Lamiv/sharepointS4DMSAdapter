@@ -2,7 +2,6 @@ package ctl
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -331,7 +330,7 @@ func (a *App) cmdStatus(ctx context.Context, args []string) int {
 		return a.fail(ExitFail, err.Error(), "run: zaks-drive doctor")
 	}
 	if *asJSON {
-		b, _ := json.MarshalIndent(r, "", "  ")
+		b, _ := marshalJSON(r)
 		a.printf("%s\n", b)
 	} else {
 		a.printf("Deployment   %s (%s)\n", r.Deployment, r.Mode)
@@ -387,7 +386,7 @@ func (a *App) cmdVersion(ctx context.Context, args []string) int {
 		}
 	}
 	if *asJSON {
-		b, _ := json.MarshalIndent(out, "", "  ")
+		b, _ := marshalJSON(out)
 		a.printf("%s\n", b)
 		return ExitOK
 	}
