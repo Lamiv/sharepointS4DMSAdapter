@@ -4,11 +4,11 @@ Nothing in this repository publishes automatically. The release workflow ([`.git
 
 ## Recommended first release
 
-A **pre-release such as `v0.1.0-beta.1`**, not `v1.0.0`. Reasons: SAP scenarios beyond the protocol reports (DMS, GOS, ArchiveLink) are not validated, RSCMSTAT and RSCMSTHS have not been run, there has been no independent security review, and the performance figures come from an emulator.
+A **pre-release such as `v0.1.0-beta.1`**, not `v1.0.0`. Reasons: DMS originals were verified end to end on one system but the SAP customising used is not yet documented, GOS and ArchiveLink are not tested, RSCMSTAT and RSCMSTHS have not been run, there has been no independent security review, and the performance figures come from an emulator.
 
 Criteria for `v1.0.0` (all must be true):
 
-- DMS originals verified end to end on a real SAP system, and the result documented.
+- DMS originals verified end to end on a real SAP system (done once) **and** the SAP customising documented so it can be reproduced; GOS and ArchiveLink tested or explicitly scoped out.
 - RSCMSTAT and RSCMSTHS run.
 - Load test repeated against a real test tenant.
 - An independent security review of the signature verification and authentication code.

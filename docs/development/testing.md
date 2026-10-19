@@ -29,7 +29,8 @@ All of them run against `internal/graphmock`, not against Microsoft. Passing tes
 |---|---|---|
 | Real SharePoint access | `zaks-drive check` or `scripts/check_access.py` with a tenant | Run manually against a real tenant during development; results are not part of CI |
 | SAP standard reports | RSCMSTH0-3, RSCMSTA0, RSCMSTAC from SE38 | Passed once (2026-10-16); see [SAP](../sap/connect-s4hana-to-sharepoint.md#5-test-with-sap-standard-tools) |
-| DMS, GOS, ArchiveLink scenarios | In SAP | Not validated |
+| DMS originals (CV01N, CV03N) | In SAP | Verified end to end once by the project owner (upload, storage in SharePoint, retrieval) |
+| GOS, ArchiveLink scenarios | In SAP | Not tested |
 | End to end smoke against a running server | `scripts/e2e-smoke.sh` | Needs a running server and key; works with the emulator stack |
 | Load tests | `loadtest/run.sh` | [Load testing](load-testing.md) |
 

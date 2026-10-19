@@ -2,7 +2,7 @@
 
 This guide takes an SAP Basis or DMS administrator from nothing to an SAP content repository whose documents are stored in SharePoint Online or OneDrive for Business.
 
-> **What this guide does and does not claim.** ZAKS Drive implements the SAP Content Server HTTP interface (pVersion 0045 to 0047). SAP's own test reports RSCMSTH0, RSCMSTH1, RSCMSTH2, RSCMSTH3, RSCMSTA0 and RSCMSTAC passed on S/4HANA 2025 (see [verified against a real SAP system](content-server.md#verified-against-a-real-sap-system)). A complete business scenario (creating a document in CV01N and opening it in CV03N, GOS attachments, ArchiveLink) has **not** been validated end to end. Sections 6 and 7 say what is known. This is not an SAP certification.
+> **What this guide does and does not claim.** ZAKS Drive implements the SAP Content Server HTTP interface (pVersion 0045 to 0047). SAP's own test reports RSCMSTH0, RSCMSTH1, RSCMSTH2, RSCMSTH3, RSCMSTA0 and RSCMSTAC passed on S/4HANA 2025 (see [verified against a real SAP system](content-server.md#verified-against-a-real-sap-system)). A DMS original has been tested end to end by the project owner (upload from SAP S/4HANA, storage in SharePoint Online, retrieval from SAP). GOS attachments and ArchiveLink have **not** been tested. Sections 6 and 7 say what is known. This is not an SAP certification.
 
 ## 1. What you are building
 
@@ -82,13 +82,13 @@ If a report fails, the SAP message alone is rarely enough. The ZAKS Drive log li
 
 The intended path is: DMS document type, storage category pointing to `Z1`, then CV01N/CV02N/CV03N. What each step needs, and what has been confirmed, is in [DMS integration](dms-integration.md).
 
-Status: the protocol side works (section 5). In the one system tested, originals created in CV01N did not reach `Z1`, because the DMS storage category and the KPro setting were not yet pointed at it. That configuration is described as steps to verify, not as a confirmed procedure.
+Status: verified end to end. The project owner uploaded a DMS document original from SAP S/4HANA, it was stored in SharePoint Online through ZAKS Drive, and it was retrieved from SAP. This was one test on one system; the exact SAP customising used is not recorded in this repository, so [DMS integration](dms-integration.md) lists the steps SAP points to for you to confirm on your release.
 
 ## 7. Other SAP use cases
 
 | Use case | Protocol needs | Status |
 |---|---|---|
-| DMS originals via KPro | Content Server 4.5 | Protocol verified; end-to-end scenario open ([DMS](dms-integration.md)) |
+| DMS originals via KPro | Content Server 4.5 | Verified end to end (one system); customising to be documented ([DMS](dms-integration.md)) |
 | GOS attachments, ArchiveLink | Content Server 4.5, OAC3 / OAD* assignments | Same commands; not tested ([GOS and ArchiveLink](kpro-gos-archivelink.md)) |
 | Custom applications | REST API | Verified with the emulator and a real tenant ([REST API](../api/rest-api.md)) |
 | Print-list attribute search (`attrSearch`) | Not implemented | Answers 501 |

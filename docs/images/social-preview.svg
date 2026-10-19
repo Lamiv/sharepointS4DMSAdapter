@@ -1,15 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="t d">
   <title id="t">ZAKS Drive</title>
-  <desc id="d">ZAKS Drive, Open-Source Enterprise Content Gateway. SAP S/4HANA and applications to SharePoint.</desc>
-  <rect width="1280" height="640" fill="#0B1F33"/>
-  <rect x="80" y="150" width="8" height="150" fill="#2F9E8F"/>
-  <text x="112" y="250" font-family="Helvetica, Arial, sans-serif" font-size="120" font-weight="700" fill="#F4F7FA">ZAKS Drive</text>
-  <text x="112" y="310" font-family="Helvetica, Arial, sans-serif" font-size="40" fill="#8DA2B5">Open-Source Enterprise Content Gateway</text>
-  <g font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#F4F7FA">
-    <text x="112" y="440">Connect SAP S/4HANA and apps to SharePoint</text>
-    <text x="112" y="490">SAP Content Server HTTP interface and REST API</text>
-    <text x="112" y="540">Documents stored in SharePoint / OneDrive</text>
+  <desc id="d">ZAKS Drive, Open-Source Enterprise Content Gateway. Your SAP documents. Your SharePoint storage.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1F33"/><stop offset="1" stop-color="#0E2A44"/></linearGradient>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#2F9E8F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#F4F7FA" stroke-opacity="0.04"/></pattern>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+
+  <!-- brand -->
+  <g transform="translate(80 92)">
+    <rect width="88" height="88" rx="20" fill="#0B1F33" stroke="#2F9E8F" stroke-opacity="0.5" stroke-width="2"/>
+    <path d="M26 28 H62 L26 60 H62" fill="none" stroke="#F4F7FA" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="26" cy="28" r="7.5" fill="#2F9E8F" stroke="#0B1F33" stroke-width="3"/>
+    <circle cx="62" cy="60" r="7.5" fill="#2F9E8F" stroke="#0B1F33" stroke-width="3"/>
   </g>
-  <g fill="#2F9E8F"><circle cx="92" cy="430" r="6"/><circle cx="92" cy="480" r="6"/><circle cx="92" cy="530" r="6"/></g>
-  <text x="1200" y="590" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#8DA2B5">Independent project. Not affiliated with SAP SE or Microsoft.</text>
+  <text x="196" y="150" font-family="Helvetica, Arial, sans-serif" font-size="68" font-weight="700" fill="#F4F7FA">ZAKS Drive</text>
+  <text x="80" y="238" font-family="Helvetica, Arial, sans-serif" font-size="26" letter-spacing="1.5" fill="#2F9E8F">OPEN-SOURCE ENTERPRISE CONTENT GATEWAY</text>
+
+  <text font-family="Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#F4F7FA">
+    <tspan x="80" y="330">Your SAP documents.</tspan>
+    <tspan x="80" y="390">Your SharePoint storage.</tspan>
+  </text>
+  <text font-family="Helvetica, Arial, sans-serif" font-size="23" fill="#8DA2B5">
+    <tspan x="80" y="450">Connect SAP S/4HANA DMS and enterprise</tspan>
+    <tspan x="80" y="482">applications to SharePoint Online through an</tspan>
+    <tspan x="80" y="514">SAP-compatible Content Server interface or REST API.</tspan>
+  </text>
+
+  <!-- flow -->
+  <g font-family="Helvetica, Arial, sans-serif">
+    <rect x="800" y="86" width="380" height="96" rx="18" fill="#0B1F33" stroke="#8DA2B5" stroke-opacity="0.55" stroke-width="2"/>
+    <text x="990" y="128" text-anchor="middle" font-size="30" font-weight="700" fill="#F4F7FA">SAP / Apps</text>
+    <text x="990" y="160" text-anchor="middle" font-size="20" fill="#8DA2B5">S/4HANA DMS · Fiori · custom</text>
+
+    <path d="M990 182 V262" stroke="#2F9E8F" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+    <text x="1008" y="228" font-size="19" fill="#8DA2B5">Content Server · REST</text>
+
+    <rect x="780" y="270" width="420" height="124" rx="22" fill="#0B1F33" stroke="#2F9E8F" stroke-width="3"/>
+    <g transform="translate(812 302)">
+      <path d="M12 12 H46 L12 46 H46" fill="none" stroke="#F4F7FA" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="12" cy="12" r="6.5" fill="#2F9E8F"/><circle cx="46" cy="46" r="6.5" fill="#2F9E8F"/>
+    </g>
+    <text x="900" y="326" font-size="34" font-weight="700" fill="#F4F7FA">ZAKS Drive</text>
+    <text x="900" y="358" font-size="20" fill="#8DA2B5">self-hosted gateway</text>
+
+    <path d="M990 394 V474" stroke="#2F9E8F" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+    <text x="1008" y="440" font-size="19" fill="#8DA2B5">Microsoft Graph</text>
+
+    <rect x="800" y="482" width="380" height="96" rx="18" fill="#0B1F33" stroke="#8DA2B5" stroke-opacity="0.55" stroke-width="2"/>
+    <text x="990" y="524" text-anchor="middle" font-size="30" font-weight="700" fill="#F4F7FA">SharePoint</text>
+    <text x="990" y="556" text-anchor="middle" font-size="20" fill="#8DA2B5">Online · OneDrive for Business</text>
+  </g>
 </svg>

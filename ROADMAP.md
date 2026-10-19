@@ -4,7 +4,7 @@ This is a statement of direction, not a commitment. There are no dates. Items mo
 
 ## Now: reach a trustworthy first pre-release
 
-- Validate DMS originals end to end on a real SAP system (document type, storage category, KPro) and document the confirmed steps.
+- Document the exact SAP customising (document type, storage category, KPro) behind the verified DMS end-to-end test, so others can reproduce it.
 - Run SAP reports RSCMSTAT and RSCMSTHS.
 - Test GOS attachments and ArchiveLink.
 - Repeat the load test against a real test tenant.

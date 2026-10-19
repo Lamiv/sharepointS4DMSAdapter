@@ -1,6 +1,6 @@
 # KPro, Generic Object Services and ArchiveLink
 
-These SAP features all store documents in a content repository through the same Content Server HTTP commands ZAKS Drive implements. **None of them has been tested end to end with ZAKS Drive.** This page lists what each needs so a tester knows where to look; it is not a validated procedure.
+These SAP features all store documents in a content repository through the same Content Server HTTP commands ZAKS Drive implements. KPro, as used by DMS originals, has been tested end to end once (see [DMS integration](dms-integration.md)); **GOS attachments and ArchiveLink have not been tested with ZAKS Drive.** This page lists what each needs so a tester knows where to look; it is not a validated procedure.
 
 | Feature | How it reaches the repository | What to configure (unverified) | Commands used |
 |---|---|---|---|

@@ -69,7 +69,7 @@ On 2026-10-16, on S/4HANA 2025, with repository `signature: required` and pVersi
 
 Findings from running them, all fixed: SAP expects the Content-Type returned exactly as it sent it; it sends multipart parts without `X-compId` (the empty-document form); `adminContRep` commands are not supported and answer 501.
 
-Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter values (ZAKS Drive accepts both), and real DMS, GOS and ArchiveLink scenarios beyond these reports (for example creating a document in CV01N and opening it in CV03N). This is not an SAP certification.
+Still unconfirmed by a test: whether SAP signs URL-decoded or raw parameter values (ZAKS Drive accepts both), and GOS and ArchiveLink scenarios (not tested). A DMS original was later tested end to end by the project owner (upload from SAP, storage in SharePoint, retrieval), see [DMS integration](dms-integration.md). This is not an SAP certification.
 
 ## Consistency, concurrency and recovery
 

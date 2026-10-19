@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="t">
+  <title id="t">ZAKS Drive</title>
+  <rect width="256" height="256" rx="56" fill="#0B1F33"/>
+  <!-- A Z drawn as a connection: two end nodes joined by one continuous path -->
+  <path d="M76 82 H180 L76 174 H180" fill="none" stroke="#F4F7FA" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="76" cy="82" r="21" fill="#2F9E8F" stroke="#0B1F33" stroke-width="8"/>
+  <circle cx="180" cy="174" r="21" fill="#2F9E8F" stroke="#0B1F33" stroke-width="8"/>
+</svg>

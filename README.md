@@ -17,7 +17,7 @@ ZAKS Drive is a content storage gateway, not a document management application: 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 
-> **Status: pre-release.** The protocol layer is tested against SAP's standard reports and a real SharePoint tenant, but complete SAP business scenarios (DMS originals, GOS, ArchiveLink) are not yet validated. Read [what is verified](#what-is-verified) before relying on it.
+> **Status: pre-release.** The protocol layer is tested against SAP's standard reports and a real SharePoint tenant, and a DMS original has been stored and retrieved end to end, but GOS and ArchiveLink are not yet tested. Read [what is verified](#what-is-verified) before relying on it.
 
 ## What it is
 
@@ -42,7 +42,7 @@ ZAKS Drive is one small Go service in a Docker container. SAP sees it as an HTTP
 
 | You want to... | Use |
 |---|---|
-| Keep SAP DMS, GOS or ArchiveLink documents in SharePoint instead of a dedicated content server | The SAP Content Server interface (protocol verified; business scenarios [not yet validated](#what-is-verified)) |
+| Keep SAP DMS, GOS or ArchiveLink documents in SharePoint instead of a dedicated content server | The SAP Content Server interface (DMS originals [verified end to end](#what-is-verified); GOS and ArchiveLink not yet tested) |
 | Let a Fiori app, a CAP service or a script store and fetch files without writing Graph code | The REST API |
 | Give auditors and users the usual Microsoft 365 tools (search, retention, versions, recycle bin) over SAP documents | SharePoint as the store; ZAKS Drive is the bridge |
 | Run it on your own server, with no extra database | One container, state only in SharePoint |
@@ -61,7 +61,7 @@ ZAKS Drive is one small Go service in a Docker container. SAP sees it as an HTTP
 | REST API (upload, download, folders, versions, search) | Verified | Automated tests with a Graph emulator; checked on a real tenant |
 | SharePoint site and OneDrive access, `Sites.Selected` | Verified | `zaks-drive check` on a real tenant |
 | SAP Content Server commands and signed URLs | Verified | SAP reports RSCMSTH0, RSCMSTH1, RSCMSTH2, RSCMSTH3, RSCMSTA0, RSCMSTAC passed on S/4HANA 2025 (2026-10-16) |
-| SAP DMS originals (CV01N, CV03N) | **Not validated** | One test system did not route originals to the repository; configuration steps are [documented as unverified](docs/sap/dms-integration.md) |
+| SAP DMS originals (CV01N, CV03N) | Verified | Successfully tested end-to-end: document upload from SAP S/4HANA, storage in SharePoint Online through ZAKS Drive, and retrieval from SAP. Tested by the project owner on one system; the exact SAP customising used is [not yet documented](docs/sap/dms-integration.md) |
 | GOS attachments, ArchiveLink | **Not tested** | Same protocol commands; [see notes](docs/sap/kpro-gos-archivelink.md) |
 | RSCMSTAT (transport), RSCMSTHS | Not run | |
 | `attrSearch`, CSADMIN (`adminContRep`) | Not implemented | Answer 501 |

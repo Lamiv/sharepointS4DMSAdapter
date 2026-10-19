@@ -2,7 +2,7 @@
 
 Goal: originals of SAP DMS documents (CV01N, CV02N, CV03N) are stored in SharePoint through ZAKS Drive.
 
-> **Status.** The content repository protocol is verified ([SAP reports](connect-s4hana-to-sharepoint.md#5-test-with-sap-standard-tools)). The DMS customising below has **not** been confirmed to work end to end. In the system used for testing, originals created in CV01N did not arrive in repository `Z1`. The steps are what SAP's documentation points to; items marked *unverified* were not proven. Have SAP DMS consultants confirm them for your release.
+> **Status.** Verified end to end: the project owner uploaded a DMS document original from SAP S/4HANA, it was stored in SharePoint Online through ZAKS Drive, and it was retrieved from SAP. The content repository protocol is also verified by SAP's reports ([SAP reports](connect-s4hana-to-sharepoint.md#5-test-with-sap-standard-tools)). The exact SAP customising used in that test is not recorded here yet. The steps below are what SAP's documentation points to; items marked *unverified* have not been individually confirmed against that test. Have SAP DMS consultants confirm them for your release.
 
 ## How DMS decides where an original goes
 
