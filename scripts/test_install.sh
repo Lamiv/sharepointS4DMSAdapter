@@ -186,6 +186,17 @@ expect "a rejected build attestation aborts the install (exit 6)" 6 env PATH="$W
 contains "the message says the attestation failed" "attestation"
 [ ! -e "$WORK/prefix-at/bin/zaks-drive" ] && ok "nothing was installed after a failed attestation" || bad "nothing was installed after a failed attestation"
 printf '#!/bin/sh\necho "$@" >> "%s/gh-args"\nexit 0\n' "$WORK" > "$WORK/okgh/gh"; chmod +x "$WORK/okgh/gh"
+# With gh installed but no flag, the installer still states the integrity model, offers the tip,
+# and does not call gh (CI runners have gh, so this branch is the one that runs there).
+rm -f "$WORK/gh-args"
+expect "with gh present and no flag the install works" 0 env PATH="$WORK/okgh:$PATH" sh "$INSTALL" --version "$VER" --prefix "$WORK/prefix-gh" --base-url "$BASE" --no-docker-check
+contains "gh present: the integrity model is still explained" "integrity rests on HTTPS"
+contains "gh present: the tip names the flag" "Add --verify-attestation"
+[ ! -e "$WORK/gh-args" ] && ok "gh present: gh is not called unless asked" || bad "gh present: gh is not called unless asked"
+# The same without gh on PATH (a machine like a clean server).
+expect "without gh the install works" 0 env PATH="$WORK/nogh" sh "$INSTALL" --version "$VER" --prefix "$WORK/prefix-nogh" --base-url "$BASE" --no-docker-check
+contains "no gh: the integrity model is explained" "integrity rests on HTTPS"
+contains "no gh: it says how to get a cryptographic check" "install the GitHub CLI"
 expect "an accepted attestation lets the install proceed" 0 env PATH="$WORK/okgh:$PATH" sh "$INSTALL" --version "$VER" --prefix "$WORK/prefix-at" --base-url "$BASE" --verify-attestation --no-docker-check
 contains "the success message mentions the attestation" "Build attestation OK"
 grep -q "attestation verify .*zaks-drive_${VER}_linux_.*tar.gz --repo Lamiv/zaks-drive" "$WORK/gh-args" && ok "gh is asked to verify the archive against the project repository" || bad "gh is asked to verify the archive against the project repository"

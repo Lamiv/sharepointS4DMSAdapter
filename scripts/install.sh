@@ -260,7 +260,8 @@ main() {
 		gh attestation verify "$work/$tarball" --repo "$REPO" >/dev/null 2>&1 || die 6 "the GitHub build attestation for $tarball could not be verified. Nothing was installed."
 		say "Build attestation OK (verified with gh)."
 	elif command -v gh >/dev/null 2>&1; then
-		say "Tip: add --verify-attestation to also verify the GitHub build attestation."
+		say "Note: integrity rests on HTTPS and the checksum manifest of the same release."
+		say "      Add --verify-attestation to also verify the GitHub build attestation."
 	else
 		say "Note: integrity rests on HTTPS and the checksum manifest of the same release. For a cryptographic"
 		say "      check install the GitHub CLI and use --verify-attestation."
