@@ -59,3 +59,11 @@ func TestSAPRequestSecretsAreNeverLogged(t *testing.T) {
 		}
 	}
 }
+
+func TestPVersionIsOnlyEchoedWhenItIsFourDigits(t *testing.T) {
+	for v, want := range map[string]bool{"0047": true, "0045": true, "": false, "47": false, "00470": false, "00a7": false, "<script>": false, "0047\r\nX: y": false} {
+		if got := validPVersion(v); got != want {
+			t.Errorf("validPVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

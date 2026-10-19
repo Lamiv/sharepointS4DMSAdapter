@@ -42,6 +42,17 @@ API_KEY=loadtest-key CS_REPO=Z1 scripts/e2e-smoke.sh
 docker compose -f loadtest/docker-compose.yml down -v
 ```
 
+## Running CodeQL locally
+
+CI runs CodeQL on every pull request. To reproduce a finding on your machine, download the CodeQL bundle from [github/codeql-action releases](https://github.com/github/codeql-action/releases) (about 700 MB), then, from the repository root:
+
+```bash
+codeql database create /tmp/zd-db --language=go --source-root=.
+codeql database analyze /tmp/zd-db codeql/go-queries:codeql-suites/go-code-scanning.qls --format=sarif-latest --output=/tmp/zd.sarif
+```
+
+The SARIF file contains the data-flow path of every result (the GitHub alert page hides it behind "Show paths"). A new result is a defect to fix, not a warning to dismiss. Three results of the full suite are known and reviewed: `go/weak-sensitive-data-hashing` (API keys are random tokens, see [security](../operations/security.md)), `go/request-forgery` (paging cursors are HMAC-signed and the Graph client accepts only links under its own base URL) and `go/reflected-xss` (SAP `serverInfo` answers `text/plain`; `pVersion` is restricted to four digits).
+
 ## Writing tests
 
 Put tests next to the code. Use the emulator for Graph behaviour; if you add a Graph quirk to the emulator, state in a comment where it was observed. Do not add tests that need real credentials to the default `go test` run.

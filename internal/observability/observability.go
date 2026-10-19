@@ -103,9 +103,18 @@ type ctxKey int
 
 const requestIDKey ctxKey = 1
 
-// RequestIDHeaders are inspected in order; SAP systems commonly send
-// X-CorrelationID, browsers/proxies X-Request-ID.
-var RequestIDHeaders = []string{"X-Request-ID", "X-CorrelationID", "X-Correlation-ID"}
+// The request ID is taken from X-Request-ID, X-CorrelationID or X-Correlation-ID, in that order
+// (SAP systems commonly send X-CorrelationID, browsers and proxies X-Request-ID); otherwise one is
+// generated. The header names are listed explicitly where they are read.
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 func RequestID(ctx context.Context) string {
 	v, _ := ctx.Value(requestIDKey).(string)
@@ -163,12 +172,7 @@ func Middleware(iface string, maxInFlight int, log *slog.Logger, next http.Handl
 	rejected := HTTPRejected.WithLabelValues(iface)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		id := ""
-		for _, h := range RequestIDHeaders {
-			if id = r.Header.Get(h); id != "" {
-				break
-			}
-		}
+		id := firstNonEmpty(r.Header.Get("X-Request-ID"), r.Header.Get("X-CorrelationID"), r.Header.Get("X-Correlation-ID"))
 		if id == "" || len(id) > 128 {
 			id = newID()
 		}

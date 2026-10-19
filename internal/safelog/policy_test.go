@@ -59,3 +59,22 @@ func TestLogCallsDoNotTakeRawErrorsOrDetail(t *testing.T) {
 		return nil
 	})
 }
+
+// CodeQL treats a request-header read whose header name is not a literal as a possible read of a
+// credential ("Sensitive data returned by HTTP request headers") and then reports every log line that
+// an error derived from it can reach. Name request headers explicitly: r.Header.Get("X-Request-ID").
+func TestRequestHeadersAreReadByLiteralName(t *testing.T) {
+	dynamic := regexp.MustCompile(`\b(r|req|request)\.Header\.(Get|Values)\(\s*[^"\s]`)
+	_ = filepath.WalkDir("../..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		raw, _ := os.ReadFile(path)
+		for i, line := range strings.Split(string(raw), "\n") {
+			if dynamic.MatchString(line) {
+				t.Errorf("%s:%d reads a request header by a non-literal name; use the literal header name:\n\t%s", filepath.ToSlash(path), i+1, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+}

@@ -13,7 +13,7 @@ This page states what ZAKS Drive does for security, what depends on how you depl
 
 ## Implemented in the code
 
-- **API keys** are compared from configuration; they can be stored as SHA-256 hashes (`sha256:`) instead of plaintext. Each key has `read`, `write`, `delete` permissions and a repository list; a repository a key may not use answers 404.
+- **API keys** are looked up by their SHA-256 hash; configuration can hold the hash (`sha256:`) instead of the plaintext. A fast unsalted hash is appropriate only because keys are long random machine tokens: generate them with `openssl rand -base64 32`, never use a human-chosen password as a key. (CodeQL's `go/weak-sensitive-data-hashing` flags this lookup; it is a false positive for random keys and is not suppressed.) Each key has `read`, `write`, `delete` permissions and a repository list; a repository a key may not use answers 404.
 - **JWT bearer tokens** can be validated against an issuer, audience and JWKS URL, with roles mapped to permissions.
 - **SAP signatures:** PKCS#7 `secKey` verification, certificate activation by an administrator, URL expiry, access modes, document protection (`docProt`). See [content server](../sap/content-server.md#signature-verification-and-modes).
 - **Reserved content server folder:** the REST API cannot read or modify the folder that holds SAP documents and certificates.
@@ -40,6 +40,8 @@ Logs are safe to share in an issue after you remove business identifiers you con
 How it is done: errors are described by `safelog.Summary` (type, code and status, never message text, and never a URL) and text shown to people goes through `safelog.Redact` (URL query strings, bearer tokens, JWTs and credential-shaped parameters removed). Unknown errors are logged by type only. `internal/safelog/policy_test.go` fails the build if a log call takes `err.Error()` or an error's `detail`, and the tests in `internal/restapi` and `internal/contentrepo` inject synthetic secrets into headers, Graph error bodies, connection failures and `secKey` parameters and check that none appears in a log or response.
 
 To investigate a problem, use the request ID from the response or `X-Request-ID`: it appears in every log line for the request and is sent to Microsoft as `client-request-id`. For a failure on Microsoft's side, the logged Microsoft `request-id` is what Microsoft support asks for. Debug level (`LOG_LEVEL=debug`) adds SAP request details but still redacts `secKey` and header values.
+
+Request headers are read by literal name in the code (`r.Header.Get("Slug")`). A variable header name makes CodeQL treat the value as a possible credential, and a test enforces the rule so the CodeQL clear-text-logging check stays meaningful.
 
 Limits: identifiers such as file names, document IDs and site URLs are logged. A name a user chooses can contain anything, so treat logs as confidential business data.
 

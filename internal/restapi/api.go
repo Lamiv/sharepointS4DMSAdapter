@@ -436,13 +436,11 @@ func fileNameFromRequest(r *http.Request) string {
 	if n := r.URL.Query().Get("fileName"); n != "" {
 		return n
 	}
-	for _, h := range []string{"Slug", "X-File-Name"} {
-		if v := r.Header.Get(h); v != "" {
-			if dec, err := url.QueryUnescape(v); err == nil {
-				return dec
-			}
-			return v
+	if v := firstNonEmpty(r.Header.Get("Slug"), r.Header.Get("X-File-Name")); v != "" {
+		if dec, err := url.QueryUnescape(v); err == nil {
+			return dec
 		}
+		return v
 	}
 	if cd := r.Header.Get("Content-Disposition"); cd != "" {
 		if _, p, err := mime.ParseMediaType(cd); err == nil {
@@ -619,4 +617,13 @@ func (a *API) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

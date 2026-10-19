@@ -223,8 +223,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			"request_id", observability.RequestID(r.Context()))
 	}
 	pv := p.get("pVersion")
-	if pv == "" {
-		pv = defaultPVersion
+	if !validPVersion(pv) {
+		pv = defaultPVersion // SAP sends four digits (0045 to 0047); anything else is not echoed back
 	}
 	w.Header().Set("X-pVersion", pv)
 
@@ -344,4 +344,17 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// validPVersion accepts the protocol version SAP sends: exactly four ASCII digits.
+func validPVersion(v string) bool {
+	if len(v) != 4 {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
