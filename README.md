@@ -1,4 +1,4 @@
-# SharePointAdapter
+# SharePointAdapter: A DMS Server using OneDrive/Sharepoint
 
 > **Start here:** follow the [step-by-step setup](#step-by-step-setup) below. SAP is optional; use the REST API as a storage backend for your own document-management application.
 
