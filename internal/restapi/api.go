@@ -559,9 +559,9 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	rid := observability.RequestID(r.Context())
 	if e.Status() >= 500 {
-		a.log.Error("request failed", "request_id", rid, "code", e.Code, "detail", e.Detail, "error", err)
+		a.log.Error("request failed", "request_id", rid, "code", e.Code, "status", e.Status(), "cause", "internal")
 	} else {
-		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status(), "detail", e.Detail)
+		a.log.Warn("request refused", "request_id", rid, "code", e.Code, "status", e.Status())
 	}
 	writeProblem(w, r, e)
 }
