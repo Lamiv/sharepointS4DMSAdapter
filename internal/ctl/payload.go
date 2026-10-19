@@ -18,10 +18,18 @@ import (
 // where <share> is $ZAKS_DRIVE_SHARE, or <prefix>/share/zaks-drive next to the directory of this
 // executable. The installer (scripts/install.sh) and `zaks-drive update` put verified releases there.
 
-var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$`)
+var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$`)
 
-// validVersion reports whether v is usable as a directory name and image tag.
-func validVersion(v string) bool { return versionRe.MatchString(v) && !strings.Contains(v, "..") }
+// validVersion reports whether v is a SemVer version that is safe as a directory name and as a
+// Docker image tag: SemVer without build metadata (a "+" is not valid in a tag), made only of
+// letters, digits, dots and hyphens, so it can never contain a path separator or "..".
+func validVersion(v string) bool {
+	if !versionRe.MatchString(v) || strings.Contains(v, "..") {
+		return false
+	}
+	_, ok := ParseVersion(v)
+	return ok
+}
 
 func (a *App) shareDir() string {
 	if s := a.env("ZAKS_DRIVE_SHARE"); s != "" {

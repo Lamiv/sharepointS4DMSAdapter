@@ -14,7 +14,9 @@ type Version struct {
 	Raw                 string
 }
 
-var semverRe = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$`)
+// semverRe is the pattern published on semver.org (with an optional leading "v"): numeric parts
+// without leading zeros, pre-release identifiers that are never empty, no "..".
+var semverRe = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
 // ParseVersion parses a version string. ok is false for non-SemVer builds such as "dev" or a
 // "0.1.0-3-gabc1234" git-describe string (which is SemVer-shaped and parses as a pre-release).

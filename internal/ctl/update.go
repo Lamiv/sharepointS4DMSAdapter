@@ -68,8 +68,8 @@ func (a *App) cmdUpdate(ctx context.Context, args []string) int {
 	var target string
 	if *version != "" {
 		target = strings.TrimPrefix(*version, "v")
-		if _, ok := ParseVersion(target); !ok {
-			return a.fail(ExitUsage, fmt.Sprintf("%q is not a version like 0.1.0 or 0.1.0-beta.1", *version), "")
+		if !validVersion(target) {
+			return a.fail(ExitUsage, fmt.Sprintf("%q is not a version like 0.1.0 or 0.1.0-beta.1 (SemVer without build metadata)", *version), "")
 		}
 	} else {
 		t, err := a.latestTag(ctx)

@@ -28,7 +28,7 @@ OUT=$2
 shift 2
 ARCHES=${*:-amd64 arm64}
 
-echo "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' ||
+echo "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' ||
 	die "the version must be SemVer (for example 0.1.0 or 0.1.0-beta.1), got: $VERSION"
 for a in $ARCHES; do
 	case $a in amd64|arm64) ;; *) die "unsupported architecture: $a (use amd64 or arm64)" ;; esac

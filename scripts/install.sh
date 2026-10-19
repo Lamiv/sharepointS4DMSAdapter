@@ -84,7 +84,8 @@ fetch_final_url() {
 	curl --proto "$(allowed_proto)" --tlsv1.2 -fsSLI -o /dev/null -w '%{url_effective}' "$1"
 }
 
-semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+# SemVer without build metadata (a "+" is not valid in a Docker tag); pre-release identifiers are never empty.
+semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 normalize_version() { # strips a leading v and validates SemVer
 	nv_v=${1#v}

@@ -123,11 +123,11 @@ func (a *App) latestTag(ctx context.Context) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("the release location answered HTTP %d for /latest. GitHub's 'latest' never points at a pre-release such as 0.1.0-beta.1: pin the version with --version", resp.StatusCode)
 	}
-	tag := path.Base(resp.Request.URL.Path)
-	if _, ok := ParseVersion(tag); !ok {
-		return "", fmt.Errorf("the latest release tag %q is not a SemVer version: pin the version with --version", tag)
+	tag := strings.TrimPrefix(path.Base(resp.Request.URL.Path), "v")
+	if !validVersion(tag) {
+		return "", fmt.Errorf("the latest release tag is not a plain SemVer version: pin the version with --version")
 	}
-	return strings.TrimPrefix(tag, "v"), nil
+	return tag, nil
 }
 
 var sumsLineRe = regexp.MustCompile(`^([0-9a-fA-F]{64}) [ *](.+)$`)
@@ -191,7 +191,8 @@ func (a *App) fetchRelease(ctx context.Context, version string) (*Fetched, error
 	if err != nil {
 		return nil, err
 	}
-	f := &Fetched{Dir: tmp, Archive: filepath.Join(tmp, name)}
+	// A constant file name: the download location never depends on text from the network.
+	f := &Fetched{Dir: tmp, Archive: filepath.Join(tmp, "release.tar.gz")}
 	fail := func(err error) (*Fetched, error) { f.Cleanup(); return nil, err }
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/"+name, nil)
@@ -249,6 +250,13 @@ func extractRelease(archive, topDir, dest string) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
+	// os.Root confines every file operation below to dest: a path that would leave it, by ".."
+	// or through a link, fails in the runtime itself. This is in addition to the checks below.
+	root, err := os.OpenRoot(dest)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	var total int64
 	for {
 		h, err := tr.Next()
@@ -279,7 +287,7 @@ func extractRelease(archive, topDir, dest string) error {
 			if !inSubdir {
 				return &VerifyError{Msg: fmt.Sprintf("the archive contains an unexpected directory %q; nothing was installed", rel)}
 			}
-			if err := os.MkdirAll(filepath.Join(dest, filepath.FromSlash(rel)), 0o755); err != nil {
+			if err := root.MkdirAll(rel, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
@@ -293,15 +301,16 @@ func extractRelease(archive, topDir, dest string) error {
 			if total > maxArchiveBytes {
 				return &VerifyError{Msg: "the archive expands to more than allowed; nothing was installed"}
 			}
-			target := filepath.Join(dest, filepath.FromSlash(rel))
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if dir := path.Dir(rel); dir != "." {
+				if err := root.MkdirAll(dir, 0o755); err != nil {
+					return err
+				}
 			}
 			mode := os.FileMode(0o644)
 			if rel == "zaks-drive" || rel == "zaks-drive-server" {
 				mode = 0o755
 			}
-			out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+			out, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 			if err != nil {
 				return err
 			}

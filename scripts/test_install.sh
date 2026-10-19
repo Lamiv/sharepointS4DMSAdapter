@@ -165,6 +165,8 @@ contains "the message asks for https" "https"
 ( unset ZAKS_DRIVE_INSTALL_ALLOW_FILE; expect "a file:// URL is refused in normal use (exit 2)" 2 sh "$INSTALL" --version "$VER" --base-url file:///tmp )
 expect "a bad version is refused (exit 2)" 2 sh "$INSTALL" --version "../../etc" --base-url "$BASE"
 expect "a version with a shell metacharacter is refused (exit 2)" 2 sh "$INSTALL" --version '1.0.0;id' --base-url "$BASE"
+expect "a pre-release with an empty identifier is refused (exit 2)" 2 sh "$INSTALL" --version '1.0.0-..' --base-url "$BASE"
+expect "build metadata is refused (it is not valid in an image tag) (exit 2)" 2 sh "$INSTALL" --version '1.0.0+build' --base-url "$BASE"
 expect "an unknown option is refused (exit 2)" 2 sh "$INSTALL" --frobnicate
 expect "--help works" 0 sh "$INSTALL" --help
 contains "--help shows the usage" "Exit codes"
