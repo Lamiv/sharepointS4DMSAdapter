@@ -197,5 +197,5 @@ func entraFix(status int, code, desc string) string {
 	case status >= 500:
 		return "Microsoft Entra ID has a problem; retry later and check https://status.cloud.microsoft ."
 	}
-	return "Run `adapter check`. The message above is Microsoft's own explanation: look up its AADSTS code at https://login.microsoftonline.com/error ."
+	return "Run `zaks-drive check`. The message above is Microsoft's own explanation: look up its AADSTS code at https://login.microsoftonline.com/error ."
 }

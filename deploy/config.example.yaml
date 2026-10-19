@@ -1,4 +1,4 @@
-# SharePoint adapter configuration. ${VAR} references are expanded from the
+# ZAKS Drive configuration. ${VAR} references are expanded from the
 # environment; keep secrets in .env / Docker secrets, never in this file.
 server:
   interfaces: [rest, contentrepo]   # rest = Document REST API, contentrepo = SAP Content Server HTTP interface
@@ -40,7 +40,7 @@ auth:
       permissions: [read]
   # jwt:                                 # optional: Entra ID / SAP IAS access tokens
   #   issuer: https://login.microsoftonline.com/<tenant>/v2.0
-  #   audience: api://sharepoint-adapter
+  #   audience: api://zaks-drive
   #   jwksUrl: https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys
   #   rolesClaim: roles
   #   rolePrefix: "Documents."           # Documents.read -> read

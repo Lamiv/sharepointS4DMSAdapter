@@ -2,8 +2,8 @@
 // access the adapter relies on, and reports for each check the access
 // required, what was tested, and PASS / FAIL (with cause and fix) / SKIP.
 //
-// It is run with `adapter check` (e.g. inside the container:
-// `docker compose exec adapter /adapter check`). Test files are created in
+// It is run with `zaks-drive check` (e.g. inside the container:
+// `docker compose exec adapter /zaks-drive check`). Test files are created in
 // each repository's root folder and removed again; the secret is never
 // printed.
 package accesscheck

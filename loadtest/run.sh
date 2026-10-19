@@ -10,7 +10,7 @@ export MSYS_NO_PATHCONV=1
 LEVELS="${LEVELS:-10 25 50 100}"
 DURATION="${DURATION:-60s}"
 SCENARIO="${SCENARIO:-scenario.js}"
-PROJECT=spadapter-lt
+PROJECT=zaks-drive-lt
 compose() { docker compose -p "$PROJECT" -f docker-compose.yml "$@"; }
 
 OUT="${OUT:-results}"

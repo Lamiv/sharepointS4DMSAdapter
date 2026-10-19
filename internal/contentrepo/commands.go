@@ -1143,7 +1143,7 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request, p params, pv
 	now := s.now()
 	if strings.EqualFold(p.get("resultAs"), "html") {
 		var b strings.Builder
-		fmt.Fprintf(&b, "<html><body><h3>SharePoint Adapter content server %s</h3><p>Status: running, %s %s UTC</p><table border=1><tr><th>contRep</th><th>Description</th><th>Status</th></tr>",
+		fmt.Fprintf(&b, "<html><body><h3>ZAKS Drive content server %s</h3><p>Status: running, %s %s UTC</p><table border=1><tr><th>contRep</th><th>Description</th><th>Status</th></tr>",
 			html.EscapeString(s.version), ymd(now), hms(now))
 		for _, id := range ids {
 			fmt.Fprintf(&b, "<tr><td>%s</td><td>%s</td><td>running</td></tr>", html.EscapeString(id), html.EscapeString(s.reps[id].cfg.Description))

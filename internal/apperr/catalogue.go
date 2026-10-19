@@ -67,7 +67,7 @@ var (
 	// ---- Documents and uploads ----
 	DocNotFound = def(AreaDoc, "DOC_NOT_FOUND", 404, "Document not found",
 		"No file or folder with that ID or path exists in this repository (or it was deleted, or it lies outside the repository's root folder).",
-		"Check the ID or path. If an upload reports this, the repository's library or root folder may have been removed: run `adapter check`.")
+		"Check the ID or path. If an upload reports this, the repository's library or root folder may have been removed: run `zaks-drive check`.")
 	NameConflict = def(AreaDoc, "NAME_CONFLICT", 409, "A file with that name already exists",
 		"Upload with `conflict=fail` found an existing file of the same name.",
 		"Use `conflict=rename` (default) to keep both, `conflict=replace` to overwrite, or choose another name.")
@@ -96,13 +96,13 @@ var (
 	// ---- SharePoint and Microsoft Graph ----
 	TokenFailed = def(AreaSP, "TOKEN_FAILED", 502, "Cannot obtain a Microsoft access token",
 		"Microsoft Entra ID refused the adapter's credentials or could not be reached. The detail has Entra's own error.",
-		"Run `adapter check`. `invalid_client`: wrong or expired client secret (use the secret VALUE, not its ID). `AADSTS700016` or `unauthorized_client`: wrong client ID or tenant. `AADSTS90002`: wrong tenant ID. Network errors: allow outbound HTTPS to login.microsoftonline.com.")
+		"Run `zaks-drive check`. `invalid_client`: wrong or expired client secret (use the secret VALUE, not its ID). `AADSTS700016` or `unauthorized_client`: wrong client ID or tenant. `AADSTS90002`: wrong tenant ID. Network errors: allow outbound HTTPS to login.microsoftonline.com.")
 	SPUnauthorized = def(AreaSP, "SP_UNAUTHORIZED", 502, "SharePoint rejected the adapter's token (401)",
 		"Entra issued a token, but Graph refused it. The usual cause is that the app has no Graph APPLICATION permission, or admin consent was not granted.",
-		"In Entra: App registration > API permissions, add the permission as type Application (Sites.Selected plus a site grant, or Sites.ReadWrite.All) and click Grant admin consent. Run `adapter check`; its roles line shows what the token carries.")
+		"In Entra: App registration > API permissions, add the permission as type Application (Sites.Selected plus a site grant, or Sites.ReadWrite.All) and click Grant admin consent. Run `zaks-drive check`; its roles line shows what the token carries.")
 	SPAccessDenied = def(AreaSP, "SP_ACCESS_DENIED", 502, "SharePoint denied access to this site or library (403)",
 		"The token is valid but the app has no (or only read) access to this site or library.",
-		"With Sites.Selected, grant the app role `write` on the site (POST /sites/{id}/permissions); a `read` grant cannot upload or delete. Or use Sites.ReadWrite.All. Run `adapter check`.")
+		"With Sites.Selected, grant the app role `write` on the site (POST /sites/{id}/permissions); a `read` grant cannot upload or delete. Or use Sites.ReadWrite.All. Run `zaks-drive check`.")
 	SPSiteNotFound = def(AreaSP, "SP_SITE_NOT_FOUND", 502, "SharePoint site not found",
 		"The site address does not exist, is misspelt, or the app cannot see it.",
 		"Open the address in a browser to confirm it. Use https://<tenant>.sharepoint.com/sites/<name> (SHAREPOINT_SITE_URL). With Sites.Selected the site must also be granted to the app (README, step 2).")
@@ -114,7 +114,7 @@ var (
 		"Use the user's sign-in name (user@contoso.com). The user must have a OneDrive; a SharePoint site is usually the better choice for a shared repository.")
 	SPNotFound = def(AreaSP, "SP_NOT_FOUND", 502, "SharePoint does not know this site, library or folder (404)",
 		"Graph answered 404 for the configured location: the drive ID is wrong or deleted, or the library or root folder was removed.",
-		"Check SHAREPOINT_SITE_URL, SHAREPOINT_LIBRARY and SHAREPOINT_ROOT_PATH (or driveId) in deploy/.env / config.yaml. Run `adapter check`.")
+		"Check SHAREPOINT_SITE_URL, SHAREPOINT_LIBRARY and SHAREPOINT_ROOT_PATH (or driveId) in deploy/.env / config.yaml. Run `zaks-drive check`.")
 	SPThrottled = def(AreaSP, "SP_THROTTLED", 503, "SharePoint is throttling requests",
 		"Microsoft limits the request rate per app and tenant; the adapter already retried with back-off.",
 		"Retry after the `Retry-After` seconds. Reduce `graph.maxConcurrency` in config.yaml or spread bulk loads over time.")
@@ -250,12 +250,12 @@ var (
 		"Another program (for example Cockpit on 9090) or another container already uses the address.",
 		"Set REST_PORT, CS_PORT or ADMIN_PORT in deploy/.env to a free host port and recreate the container. `ss -ltnp | grep :<port>` shows who holds it.")
 	StartupRepositoryFailed = def(AreaConfig, "STARTUP_REPOSITORY_FAILED", 0, "Cannot reach the configured SharePoint location",
-		"The adapter retries until the repository resolves; /readyz shows the reason meanwhile.", "Read the detail. Run `adapter check` for a step-by-step checklist.")
+		"ZAKS Drive retries until the repository resolves; /readyz shows the reason meanwhile.", "Read the detail. Run `zaks-drive check` for a step-by-step checklist.")
 
 	// ---- Command line and admin endpoints ----
 	CLIAdminUnreachable = def(AreaCLI, "CLI_ADMIN_UNREACHABLE", 0, "Cannot reach the adapter's admin endpoint",
 		"`adapter certs ...` talks to the running adapter on 127.0.0.1:9090 inside the container, and nothing answered.",
-		"Check that the container runs (`docker compose ps`). Run the command with `docker compose exec adapter /adapter ...`, or set ADMIN_URL.")
+		"Check that the container runs (`docker compose ps`). Run the command with `docker compose exec adapter /zaks-drive ...`, or set ADMIN_URL.")
 	CLIAdminRouteMissing = def(AreaCLI, "CLI_ADMIN_ROUTE_MISSING", 0, "Certificate administration is not available",
 		"The admin endpoint answered 404: the `contentrepo` interface is not enabled, or the adapter is still starting.",
 		"Enable `contentrepo` in `server.interfaces`, wait for /readyz, and retry.")

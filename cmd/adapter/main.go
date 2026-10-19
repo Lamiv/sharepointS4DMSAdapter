@@ -16,6 +16,8 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,27 +38,79 @@ import (
 	"sharepointadapter/internal/transfer"
 )
 
+// version is set at build time (-X main.version=...).
 var version = "dev"
+
+const (
+	productName = "ZAKS Drive"
+	productDesc = "Open-Source Enterprise Content Gateway"
+)
+
+func exeName() string {
+	n := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
+	if n == "" || n == "adapter" {
+		return "zaks-drive" // "adapter" is the pre-rename name, kept as an alias in the image
+	}
+	return n
+}
+
+func printVersion() {
+	fmt.Printf("%s %s (%s, %s/%s)\n", productName, version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+func usage(w io.Writer) {
+	x := exeName()
+	fmt.Fprintf(w, `%s %s - %s
+
+Usage:
+  %[4]s [-config file]                      run the server (default; the command "serve" does the same)
+  %[4]s check                               verify every access the server needs: PASS / FAIL / SKIP, with the fix
+  %[4]s certs list|activate|deactivate ...  manage SAP certificates on a running server
+  %[4]s errors                              print the error-code catalogue as Markdown
+  %[4]s version                             print the version
+  %[4]s -healthcheck                        probe the local /healthz endpoint (Docker HEALTHCHECK)
+
+Configuration: -config <file> or the CONFIG_FILE variable (default in Docker: /etc/adapter/config.yaml).
+Documentation: README.md, docs/index.md and docs/error-codes.md in the repository.
+`, productName, version, productDesc, x)
+}
 
 func main() {
 	cfgPath := flag.String("config", os.Getenv("CONFIG_FILE"), "path to YAML config")
 	healthcheck := flag.Bool("healthcheck", false, "probe the local admin /healthz endpoint and exit (for Docker HEALTHCHECK)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Usage = func() { usage(os.Stderr) }
 	flag.Parse()
+	if *showVersion {
+		printVersion()
+		return
+	}
 	if *healthcheck {
 		os.Exit(probe())
 	}
-	if flag.Arg(0) == "certs" {
+	switch cmd := flag.Arg(0); cmd {
+	case "version":
+		printVersion()
+		return
+	case "help":
+		usage(os.Stdout)
+		return
+	case "certs":
 		os.Exit(certsCLI(flag.Args()[1:]))
-	}
-	if flag.Arg(0) == "errors" {
+	case "errors":
 		// Prints the error-code catalogue as Markdown (docs/error-codes.md).
 		fmt.Print(apperr.Markdown())
 		return
+	case "", "serve", "check":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
+		usage(os.Stderr)
+		os.Exit(2)
 	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "The adapter cannot start because of its configuration:\n"+apperr.Format(err))
+		fmt.Fprintln(os.Stderr, productName+" cannot start because of its configuration:\n"+apperr.Format(err))
 		os.Exit(2)
 	}
 	log := observability.NewLogger(cfg.Log.Level, cfg.Log.Format)
@@ -64,13 +118,14 @@ func main() {
 	if flag.Arg(0) == "check" {
 		os.Exit(runCheck(cfg))
 	}
+	log.Info(productName+" starting", "version", version, "interfaces", cfg.Server.Interfaces, "go", runtime.Version())
 	if err := run(cfg, log); err != nil {
 		if ae, ok := apperr.As(err); ok {
-			log.Error("adapter stopped", "code", ae.Code, "error", ae.Detail, "fix", ae.Fix())
+			log.Error(productName+" stopped", "code", ae.Code, "error", ae.Detail, "fix", ae.Fix())
 		} else {
-			log.Error("adapter stopped", "error", err)
+			log.Error(productName+" stopped", "error", err)
 		}
-		fmt.Fprintln(os.Stderr, "The adapter stopped:\n"+apperr.Format(err))
+		fmt.Fprintln(os.Stderr, productName+" stopped:\n"+apperr.Format(err))
 		os.Exit(1)
 	}
 }
@@ -317,8 +372,8 @@ func probe() int {
 // certsCLI manages content server certificates through the local admin
 // listener, e.g. inside the container:
 //
-//	/adapter certs list
-//	/adapter certs activate Z1 CN=S4H
+//	/zaks-drive certs list
+//	/zaks-drive certs activate Z1 CN=S4H
 func certsCLI(args []string) int {
 	base := os.Getenv("ADMIN_URL")
 	if base == "" {
@@ -392,7 +447,7 @@ func initHint(ctx context.Context, err error, tokens *auth.ClientCredentials) st
 	return " | the token carries these roles: " + strings.Join(roles, ", ") + ". siteUrl needs Sites.Selected plus a site grant, or Sites.ReadWrite.All; userId (OneDrive) needs Files.ReadWrite.All; check that admin consent was granted"
 }
 
-// runCheck implements `adapter check`: it verifies every access the adapter
+// runCheck implements `zaks-drive check`: it verifies every access the adapter
 // needs against the real Graph and prints a PASS/FAIL/SKIP checklist.
 func runCheck(cfg config.Config) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

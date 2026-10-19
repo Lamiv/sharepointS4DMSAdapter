@@ -1,4 +1,7 @@
-# Production-style deployment on a Docker host (Ubuntu VM).
+# ZAKS Drive: production-style deployment on a Docker host (Ubuntu VM).
+# The service keeps its name "adapter" on purpose: renaming it would leave the old container
+# running next to the new one on upgrade (same ports). Use `docker compose ... exec adapter /zaks-drive check`
+# ("/adapter" still works).
 #   cp deploy/.env.example deploy/.env   # fill in secrets
 #   cp deploy/config.example.yaml deploy/config.yaml   # edit repositories
 #   docker compose -f deploy/docker-compose.yml up -d --build
@@ -7,11 +10,11 @@ services:
     build:
       context: ..
       target: adapter
-    image: sharepoint-adapter:latest
+    image: zaks-drive:latest
     restart: unless-stopped
     env_file: .env
     environment:
-      CONFIG_FILE: /etc/adapter/config.yaml   # lets `exec adapter /adapter check` find the config
+      CONFIG_FILE: /etc/adapter/config.yaml   # lets `exec adapter /zaks-drive check` find the config
     volumes:
       - ./config.yaml:/etc/adapter/config.yaml:ro
       - spool:/var/spool/adapter   # disk-backed spool (not RAM)

@@ -14,7 +14,7 @@ services:
     build: { context: .., target: adapter }
     depends_on: [graphmock]
     environment:
-      CONFIG_FILE: /etc/adapter/config.yaml   # lets `exec adapter /adapter check` find the config
+      CONFIG_FILE: /etc/adapter/config.yaml   # lets `exec adapter /zaks-drive check` find the config
       METADATA_CACHE_TTL: "${METADATA_CACHE_TTL:-60s}"
     volumes:
       - ../deploy/config.mock.yaml:/etc/adapter/config.yaml:ro

@@ -161,7 +161,7 @@ HTTP status `—` means the error is not sent over HTTP (start-up and command-li
 **Document not found** (HTTP 404)
 
 - **Cause:** No file or folder with that ID or path exists in this repository (or it was deleted, or it lies outside the repository's root folder).
-- **Fix:** Check the ID or path. If an upload reports this, the repository's library or root folder may have been removed: run `adapter check`.
+- **Fix:** Check the ID or path. If an upload reports this, the repository's library or root folder may have been removed: run `zaks-drive check`.
 
 ### `NAME_CONFLICT`
 
@@ -250,21 +250,21 @@ HTTP status `—` means the error is not sent over HTTP (start-up and command-li
 **Cannot obtain a Microsoft access token** (HTTP 502)
 
 - **Cause:** Microsoft Entra ID refused the adapter's credentials or could not be reached. The detail has Entra's own error.
-- **Fix:** Run `adapter check`. `invalid_client`: wrong or expired client secret (use the secret VALUE, not its ID). `AADSTS700016` or `unauthorized_client`: wrong client ID or tenant. `AADSTS90002`: wrong tenant ID. Network errors: allow outbound HTTPS to login.microsoftonline.com.
+- **Fix:** Run `zaks-drive check`. `invalid_client`: wrong or expired client secret (use the secret VALUE, not its ID). `AADSTS700016` or `unauthorized_client`: wrong client ID or tenant. `AADSTS90002`: wrong tenant ID. Network errors: allow outbound HTTPS to login.microsoftonline.com.
 
 ### `SP_UNAUTHORIZED`
 
 **SharePoint rejected the adapter's token (401)** (HTTP 502)
 
 - **Cause:** Entra issued a token, but Graph refused it. The usual cause is that the app has no Graph APPLICATION permission, or admin consent was not granted.
-- **Fix:** In Entra: App registration > API permissions, add the permission as type Application (Sites.Selected plus a site grant, or Sites.ReadWrite.All) and click Grant admin consent. Run `adapter check`; its roles line shows what the token carries.
+- **Fix:** In Entra: App registration > API permissions, add the permission as type Application (Sites.Selected plus a site grant, or Sites.ReadWrite.All) and click Grant admin consent. Run `zaks-drive check`; its roles line shows what the token carries.
 
 ### `SP_ACCESS_DENIED`
 
 **SharePoint denied access to this site or library (403)** (HTTP 502)
 
 - **Cause:** The token is valid but the app has no (or only read) access to this site or library.
-- **Fix:** With Sites.Selected, grant the app role `write` on the site (POST /sites/{id}/permissions); a `read` grant cannot upload or delete. Or use Sites.ReadWrite.All. Run `adapter check`.
+- **Fix:** With Sites.Selected, grant the app role `write` on the site (POST /sites/{id}/permissions); a `read` grant cannot upload or delete. Or use Sites.ReadWrite.All. Run `zaks-drive check`.
 
 ### `SP_SITE_NOT_FOUND`
 
@@ -292,7 +292,7 @@ HTTP status `—` means the error is not sent over HTTP (start-up and command-li
 **SharePoint does not know this site, library or folder (404)** (HTTP 502)
 
 - **Cause:** Graph answered 404 for the configured location: the drive ID is wrong or deleted, or the library or root folder was removed.
-- **Fix:** Check SHAREPOINT_SITE_URL, SHAREPOINT_LIBRARY and SHAREPOINT_ROOT_PATH (or driveId) in deploy/.env / config.yaml. Run `adapter check`.
+- **Fix:** Check SHAREPOINT_SITE_URL, SHAREPOINT_LIBRARY and SHAREPOINT_ROOT_PATH (or driveId) in deploy/.env / config.yaml. Run `zaks-drive check`.
 
 ### `SP_THROTTLED`
 
@@ -782,8 +782,8 @@ HTTP status `—` means the error is not sent over HTTP (start-up and command-li
 
 **Cannot reach the configured SharePoint location** (HTTP —)
 
-- **Cause:** The adapter retries until the repository resolves; /readyz shows the reason meanwhile.
-- **Fix:** Read the detail. Run `adapter check` for a step-by-step checklist.
+- **Cause:** ZAKS Drive retries until the repository resolves; /readyz shows the reason meanwhile.
+- **Fix:** Read the detail. Run `zaks-drive check` for a step-by-step checklist.
 
 ## Command line and admin endpoints
 
@@ -799,7 +799,7 @@ HTTP status `—` means the error is not sent over HTTP (start-up and command-li
 **Cannot reach the adapter's admin endpoint** (HTTP —)
 
 - **Cause:** `adapter certs ...` talks to the running adapter on 127.0.0.1:9090 inside the container, and nothing answered.
-- **Fix:** Check that the container runs (`docker compose ps`). Run the command with `docker compose exec adapter /adapter ...`, or set ADMIN_URL.
+- **Fix:** Check that the container runs (`docker compose ps`). Run the command with `docker compose exec adapter /zaks-drive ...`, or set ADMIN_URL.
 
 ### `CLI_ADMIN_ROUTE_MISSING`
 
